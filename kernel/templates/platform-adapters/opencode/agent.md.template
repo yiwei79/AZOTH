@@ -1,0 +1,26 @@
+---
+description: "{{AGENT_DESCRIPTION}}"
+mode: "{{AGENT_MODE}}"
+model: "{{MODEL}}"
+permission:
+  edit: "{{PERM_EDIT}}"
+  bash: "{{PERM_BASH}}"
+  webfetch: "{{PERM_WEBFETCH}}"
+  task: "{{PERM_TASK}}"
+---
+
+# {{AGENT_NAME}}
+
+## Role
+{{AGENT_ROLE}}
+
+## Instructions
+
+Read and follow `CLAUDE.md` in the project root for full governance rules.
+
+{{AGENT_INSTRUCTIONS}}
+
+## Constraints
+- Respect entropy ceiling (max 10 files per turn)
+- Checkpoint before risky operations
+- Human approval required for kernel/governance changes

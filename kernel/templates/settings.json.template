@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "List",
+      "WebFetch",
+      "WebSearch",
+      "Task"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(git push --force)",
+      "Bash(git reset --hard HEAD~)",
+      "Edit(kernel/**)",
+      "Edit(.claude/settings.json)"
+    ]
+  },
+  "env": {
+    "AZOTH_VERSION": "{{AZOTH_VERSION}}",
+    "AZOTH_PHASE": "operate"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/session_start_welcome.py",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}
