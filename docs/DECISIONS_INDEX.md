@@ -1,9 +1,11 @@
 # Architecture Decisions Index
 
-Machine-readable index of all architecture decisions (D1–D52).
+Machine-readable index of all architecture decisions (D1–D54).
 Agents use this to check compliance and track implementation status.
 
 See `docs/AZOTH_ARCHITECTURE.md` for full rationale and context.
+See `docs/CO_PRIMARY_PLATFORM_BLUEPRINT.md` for the co-primary platform strategy
+and unified governance model.
 
 ## Status Legend
 
@@ -63,19 +65,20 @@ See `docs/AZOTH_ARCHITECTURE.md` for full rationale and context.
 | D45 | Context-sensitive memory retrieval | 🔧 partial | skills/context-recall/SKILL.md | 3 |
 | D46 | Dev-sync script: workspace self-installation to platform directories | ✅ implemented | scripts/azoth-deploy.py | 3 |
 | D47 | Persistent backlog: `.azoth/backlog.yaml` | ✅ implemented | .azoth/backlog.yaml | 3 |
-| D48 | Versioned roadmap: `.azoth/roadmap.yaml` | ✅ implemented | .azoth/roadmap.yaml (v0.0.1–v0.0.7 + v0.1.0 target; /next reads versioned structure) | 3 |
+| D48 | Versioned roadmap: `.azoth/roadmap.yaml` | ✅ implemented | .azoth/roadmap.yaml (v0.0.1–v0.1.0 complete + v0.2.0 active; /next reads versioned structure) | 3 |
 | D49 | Intake 3-axis triage (extends D33) | ✅ implemented | .claude/commands/intake.md | 3 |
 | D50 | Session scope card | 🔧 partial | `.claude/commands/next.md` + `.azoth/scope-gate.json` (BL-004 delivered; hook enforcement Claude Code–only) | 3 |
 | D51 | Formalized M2→M1 promotion path | ✅ implemented | kernel/GOVERNANCE.md + kernel/PROMOTION_RUBRIC.md | 3 |
 | D52 | Session Welcome UX: `/start` + `scripts/welcome.py` | ✅ implemented | `scripts/welcome.py` + `.claude/commands/start.md` (BL-007); Phase 5: `.claude/hooks/session_start_welcome.py`, `.azoth/session-orientation.txt` (runtime), `CLAUDE.md` rule 9 | 4 |
-| D53 | Auto-versioning policy: delivery-triggered version increments | 📋 planned | scripts/version-bump.py + /session-closeout integration (BL-009) | 4 |
+| D53 | Auto-versioning policy: delivery-triggered version increments | ✅ implemented | `scripts/version-bump.py` (--patch / --phase / --release) + roadmap `active_version`; /session-closeout + /deliver-full `--patch` (BL-009); `--release` closes v0.0.7→v0.1.0 and activates v0.2.0 | 4 |
+| D54 | Branch model + worktree policy | ✅ implemented | `CLAUDE.md` §Git Conventions (Branch Model, Worktree Policy, Merge Hygiene); two permanent branches (`main`, `phase/v0.2.0-pN`); short-lived `patch/<bl-id>` + `feat/<slug>` branches deleted on merge; zero-worktree default with run-ledger claim required for parallel worktrees | 8 |
 
 ## Summary
 
 | Status | Count |
 |--------|-------|
-| ✅ implemented | 32 |
+| ✅ implemented | 39 |
 | 🔧 partial | 9 |
-| 📋 planned | 11 |
+| 📋 planned | 5 |
 | 🔄 superseded | 1 |
-| **Total** | **53** |
+| **Total** | **54** |

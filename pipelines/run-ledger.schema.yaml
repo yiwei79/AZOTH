@@ -1,0 +1,403 @@
+# Azoth Run Ledger Schema — P1-001
+# JSON Schema (draft 2020-12) expressed in YAML for readability.
+# Validates .azoth/run-ledger.local.yaml (gitignored; example: run-ledger.local.yaml.example).
+#
+# Decisions: D21 (subagent isolation / typed gates), D50 (session scope card)
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "azoth:run-ledger:v1"
+title: "Azoth Run Ledger"
+description: >
+  Durable machine-readable state for multi-wave /eval-swarm and long /auto runs.
+  Stored under .azoth/ (gitignored) so a new chat session can resume without
+  replaying full orchestrator prose. Append-only list of run entries.
+type: object
+additionalProperties: false
+required:
+  - schema_version
+  - runs
+
+properties:
+
+  schema_version:
+    type: integer
+    const: 1
+    description: "Bump only on breaking changes; consumers reject unknown versions."
+
+  write_claim:
+    type: object
+    description: >
+      Optional coarse repo-wide write lease. At most one session may hold this claim
+      at a time; other sessions are denied until the claim is released or expires.
+      Stored in run-ledger.local.yaml (gitignored) so it survives context resets.
+    additionalProperties: false
+    required:
+      - session_id
+      - expires_at
+      - acquired_at
+    properties:
+      session_id:
+        type: string
+        minLength: 1
+        maxLength: 128
+        description: "Identifier of the session that holds the write lease."
+      expires_at:
+        type: string
+        pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
+        description: >
+          ISO-8601 timestamp when the claim expires. Mirrors scope-gate expiry;
+          resolve_stale_claims uses this for clock-only staleness detection.
+      acquired_at:
+        type: string
+        pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
+        description: "ISO-8601 timestamp when the claim was acquired."
+      harness:
+        type: string
+        description: >
+          Optional IDE/harness label (e.g. claude-code, cursor, copilot, opencode,
+          antigravity). Mechanical enforcement applies in Claude Code; other harnesses
+          simulate the check via behavioral parity rules.
+      worktree_path:
+        type: string
+        minLength: 1
+        description: >
+          Absolute path of the worktree that currently owns the write lease. This is
+          advisory audit metadata used for parallel-worktree handoff and conflict
+          messages.
+      branch:
+        type: string
+        minLength: 1
+        description: "Optional current git branch for the lease-owning worktree."
+      git_common_dir:
+        type: string
+        minLength: 1
+        description: >
+          Optional git common-dir path used to derive the shared cross-worktree lease
+          identity when multiple worktrees of the same repo are active.
+
+  sessions:
+    type: array
+    description: >
+      Optional local runtime registry for concurrent sessions. This tracks parked or
+      active sessions without changing the singleton scope-gate approval model.
+    items:
+      $ref: "#/$defs/session_entry"
+
+  runs:
+    type: array
+    description: "Ordered list of run entries; most recent active entry is the current run."
+    items:
+      $ref: "#/$defs/run_entry"
+
+$defs:
+
+  session_entry:
+    type: object
+    additionalProperties: false
+    required:
+      - session_id
+      - backlog_id
+      - goal
+      - status
+      - ide
+      - next_action
+      - updated_at
+    description: "Local runtime state for one resumable session."
+    properties:
+
+      session_id:
+        type: string
+        minLength: 1
+        maxLength: 128
+        description: "Unique session identifier." 
+
+      backlog_id:
+        type: string
+        minLength: 1
+        maxLength: 64
+        description: "Backlog item or logical work id attached to this session."
+
+      goal:
+        type: string
+        minLength: 1
+        description: "Human-readable goal for this session."
+
+      session_mode:
+        type: string
+        enum: [exploratory, delivery]
+        description: "exploratory = no write scope yet; delivery = pipeline-owned work session."
+
+      status:
+        type: string
+        enum: [active, parked, closed]
+        description: "active = focused; parked = resumable but not focused; closed = finished."
+
+      ide:
+        type: string
+        minLength: 1
+        maxLength: 64
+        description: "IDE or client where the session was last active (e.g. copilot, claude-code)."
+
+      next_action:
+        type: string
+        minLength: 1
+        description: "Human-readable resume instruction for the session."
+
+      updated_at:
+        type: string
+        pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
+        description: "ISO-8601 timestamp of last session-state mutation."
+
+      active_run_id:
+        type: string
+        minLength: 1
+        maxLength: 128
+        description: "Optional run_id currently associated with the focused session."
+
+      closed_at:
+        type: string
+        pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
+        description: "Optional ISO-8601 timestamp when the session was closed."
+
+  run_entry:
+    type: object
+    additionalProperties: false
+    required:
+      - run_id
+      - mode
+      - goal
+      - status
+      - created_at
+      - updated_at
+      - next_action
+    description: "State snapshot for one pipeline run."
+    properties:
+
+      run_id:
+        type: string
+        minLength: 1
+        maxLength: 128
+        description: "Unique identifier. Convention: YYYY-MM-DD-<task-id>-<pipeline> (session_id style)."
+
+      session_id:
+        type: string
+        minLength: 1
+        maxLength: 128
+        description: "Optional session registry link for this run."
+
+      backlog_id:
+        type: string
+        minLength: 1
+        maxLength: 64
+        description: "Optional backlog item attached to this run."
+
+      ide:
+        type: string
+        minLength: 1
+        maxLength: 64
+        description: "Optional IDE or client where the run was orchestrated."
+
+      mode:
+        type: string
+        minLength: 1
+        description: "Pipeline preset or mode label (e.g. deliver, eval-swarm, dfa, auto)."
+
+      goal:
+        type: string
+        minLength: 1
+        description: "Human-readable goal for this run (mirrors scope-gate goal field)."
+
+      status:
+        type: string
+        enum: [active, complete, failed, paused]
+        description: "active = in progress; complete = delivered; failed = aborted; paused = awaiting human."
+
+      created_at:
+        type: string
+        pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
+        description: "ISO-8601 timestamp when this run was created. Frozen on creation."
+
+      updated_at:
+        type: string
+        pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
+        description: "ISO-8601 timestamp of last mutation. Updated on every append call."
+
+      next_action:
+        type: string
+        minLength: 1
+        description: >
+          Resume instruction for the next session. Should be precise enough that
+          a new orchestrator can continue without re-reading full prose history.
+          Example: 'resume at implementation stage — task-plan and test-specs ready'
+
+      stages_completed:
+        type: array
+        items:
+          type: string
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_-]*$"
+        description: "Ordered list of pipeline stage names completed so far."
+
+      active_stage_id:
+        type: string
+        pattern: "^[a-z][a-z0-9_-]*$"
+        description: "Current stage anchor for stage-aware resume."
+
+      pending_stage_ids:
+        type: array
+        items:
+          type: string
+          minLength: 1
+          pattern: "^[a-z][a-z0-9_-]*$"
+        description: "Remaining stage ids for the current pipeline checkpoint."
+
+      pause_reason:
+        type: string
+        enum: [human-gate, handoff, retry]
+        description: "Why the run is paused when status=paused."
+
+      stage_spawns:
+        type: array
+        items:
+          $ref: "#/$defs/stage_spawn_entry"
+
+      stage_summaries:
+        type: array
+        items:
+          $ref: "#/$defs/stage_summary_evidence_entry"
+
+      waves:
+        type: array
+        items:
+          $ref: "#/$defs/wave_entry"
+        description: "Eval-swarm wave outcomes. Empty for non-swarm runs."
+
+      branches:
+        type: array
+        items:
+          $ref: "#/$defs/branch_entry"
+        description: "Swarm branch outcomes. Empty for single-branch runs."
+
+  # Cross-reference: wave_entry.stage_id + wave_label link to swarm-eval-wave.schema.yaml wave_def.stage_id
+  # and wave_def.wave respectively. These fields are optional (F3: advisory, not enforcement — BL-034).
+  stage_spawn_entry:
+    type: object
+    additionalProperties: false
+    required: [run_id, stage_id, subagent_type, trigger, role_hint, dependency_summary_refs, spawned_at]
+    properties:
+      run_id:
+        type: string
+        minLength: 1
+      stage_id:
+        type: string
+        pattern: "^[a-z][a-z0-9_-]*$"
+      subagent_type:
+        type: string
+        minLength: 1
+      trigger:
+        type: string
+        minLength: 1
+      role_hint:
+        type: string
+        minLength: 1
+      dependency_summary_refs:
+        type: array
+        items:
+          type: string
+          minLength: 1
+      spawned_at:
+        type: string
+        pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
+
+  stage_summary_evidence_entry:
+    type: object
+    additionalProperties: false
+    required: [run_id, stage_id, subagent_type, trigger, role_hint, dependency_summary_refs, summary_recorded_at, summary_status, summary_disposition]
+    properties:
+      run_id:
+        type: string
+        minLength: 1
+      stage_id:
+        type: string
+        pattern: "^[a-z][a-z0-9_-]*$"
+      subagent_type:
+        type: string
+        minLength: 1
+      trigger:
+        type: string
+        minLength: 1
+      role_hint:
+        type: string
+        minLength: 1
+      dependency_summary_refs:
+        type: array
+        items:
+          type: string
+          minLength: 1
+      summary_recorded_at:
+        type: string
+        pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
+      summary_status:
+        type: string
+        enum: [complete, blocked, needs-input]
+      summary_disposition:
+        type: string
+        minLength: 1
+
+  wave_entry:
+    type: object
+    additionalProperties: false
+    required:
+      - wave
+      - status
+    description: "Outcome of one eval-swarm wave."
+    properties:
+      wave:
+        type: integer
+        minimum: 1
+        description: "Wave number (1-indexed)."
+      scores:
+        type: array
+        items:
+          type: number
+        description: "Per-evaluator scores for this wave."
+      consensus:
+        type: number
+        description: "Aggregated consensus score for this wave."
+      status:
+        type: string
+        enum: [pass, fail, partial]
+        description: "pass = threshold met; fail = below threshold; partial = incomplete."
+      stage_id:
+        type: string
+        pattern: "^[a-z][a-z0-9_-]*$"
+        description: >
+          Cross-reference anchor to the swarm-wave spec stage_id (swarm-eval-wave.schema.yaml).
+          Optional — omit for non-swarm runs or runs predating BL-034.
+      wave_label:
+        type: string
+        enum: [A, B, C, D]
+        description: >
+          Human-readable wave label matching the swarm-wave spec (A=first, B=second, etc.).
+          Advisory/informational only — the Python ledger validator is permissive and does
+          not enforce this enum at runtime (F3). Omit for non-swarm runs.
+
+  branch_entry:
+    type: object
+    additionalProperties: false
+    required:
+      - branch_id
+      - disposition
+    description: "Outcome of one swarm branch."
+    properties:
+      branch_id:
+        type: string
+        minLength: 1
+        description: "Unique identifier for this branch (e.g. evaluator agent name or index)."
+      score:
+        type: number
+        description: "Optional score for this branch's output."
+      disposition:
+        type: string
+        enum: [merged, discarded, pending]
+        description: "merged = incorporated into queen; discarded = dropped; pending = awaiting review."

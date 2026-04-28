@@ -1,6 +1,7 @@
 ---
 description: Full pipeline with governance gates — for kernel, governance, or breaking
   changes
+agent: orchestrator
 ---
 
 # /deliver-full $ARGUMENTS
@@ -8,36 +9,25 @@ description: Full pipeline with governance gates — for kernel, governance, or 
 Full delivery pipeline with governance review. Use when the work changes
 governance, kernel, or operating rules.
 
+## Preconditions
+
+<!-- P1-016: Antigravity compliance -->
+- Verify `.azoth/scope-gate.json` exists and is approved before write work.
+- This pipeline requires governance review — human gates are mandatory.
+- See `docs/antigravity-compliance-matrix.md` for platform parity gaps.
+
 ## Stage 0 — Pipeline gate (mechanical)
 
-**Before any other Write/Edit** to the repo in this run: `Read` `.azoth/scope-gate.json`.
-If `delivery_pipeline` is `governed` **or** `target_layer` is `M1`, `Write`
-`.azoth/pipeline-gate.json` so the PreToolUse hook allows subsequent edits:
-
-```json
-{
-  "session_id": "<must match scope-gate.session_id>",
-  "pipeline": "deliver-full",
-  "approved": true,
-  "expires_at": "<same as scope-gate.expires_at>",
-  "opened_at": "<ISO 8601 now, +00:00>"
-}
-```
-
-If the scope is **not** governed (standard additive work without M1 backlog), **omit** this
-file unless you already use it from a prior step. If `pipeline-gate.json` already exists with
-the same `session_id`, update `opened_at` only.
-
-This stage wires **Claude Code’s delivery pipeline** to mechanical enforcement: governed
-work cannot bypass `/deliver-full` (or `/auto` / `/deliver`) and inline-only implementation.
+Apply the canonical procedure in `docs/GATE_PROTOCOL.md`. If this command writes
+`.azoth/pipeline-gate.json`, set `"pipeline": "deliver-full"`.
 
 ## Typed stage summary (BL-012)
 
-After each pipeline step completes (architect through builder), the subagent MUST emit a YAML
-document conforming to `pipelines/stage-summary.schema.yaml` with `pipeline: deliver-full`
-and a stable `stage_id` (see `subagent-router` §Stage briefs: deliver-full). The
-orchestrator forwards this summary to the next stage. Optional markdown alignment
-(`alignment-sync`) is for human pull-review only.
+After each pipeline step completes (architect through builder), emit YAML per
+`skills/subagent-router/SKILL.md` §Stage summary output and `pipelines/stage-summary.schema.yaml`
+with `pipeline: deliver-full` and a stable `stage_id` (see `subagent-router` §Stage briefs:
+deliver-full). The orchestrator forwards this summary to the next stage; optional markdown
+alignment (`alignment-sync`) remains human-facing only.
 
 ## Pipeline (D21)
 
@@ -48,29 +38,41 @@ Goal Clarification → Architect → Governance Review → Planner → Test Buil
 ## Orchestration Constraints
 
 - Policy source: `subagent-router` skill (trigger definitions and routing table)
+- Governed Stage 2 is a fresh-context architect stage. Spawn `deliver_full_s2_architect` next or fail closed before any inline architecture brief is produced.
 - Each agent gate (stages 3–6) mandates a fresh-context subagent invocation via `Agent(subagent_type=...)`
-- The Architect (orchestrator) remains the final speaker for all human gates
-- Subagents return findings; Architect disposes and escalates to human if needed
+- The Orchestrator remains the final speaker for all human gates; architect gate reviews return findings to the orchestrator.
+- Subagents return findings; Orchestrator disposes and escalates to human if needed
 - **Orchestrator handoff:** Before each downstream `Agent`/`Task`, attach `inputs.prior_stage_summaries` with verbatim typed YAML from upstream stages (`subagent-router` §Orchestrator forward payload). Evaluator and review stages are not valid without this.
 - **Review escalation:** If Governance Review returns request-changes, CRITICAL/blocking findings, `entropy: RED`, or `status: needs-input`, **STOP** — do not run Planner until the human approves continuation (same human-gate pattern as `/auto` Execution §5).
+- **Governed approval consumption:** When the human approves continuation after a governed
+  gate, the same run must consume that approval through `scripts/run_ledger.py` by
+  promoting the next executable stage from the paused checkpoint. Another declaration or
+  status card alone is insufficient.
+- **Revise-and-continue replay:** When reviewer/evaluator findings require a bounded
+  revision and scope remains valid, rewrite the active run queue fail-closed so the
+  approved upstream revision stage is replayed before the current gate-owning review
+  stage. Missing lineage proof, ambiguous queue state, or duplicate replay must stop and
+  escalate instead of mutating the run.
 - **Eval / swarm routing:** When the pipeline reaches an **evaluator** stage or a **final `/eval`**
   pass after Builder / Architect Review, apply `.claude/commands/eval.md` triggers **E1–E6**
   (governed scope and multi-stage summaries often satisfy **E2**/**E3**). If any trigger
   fires → **`/eval-swarm`** semantics (`/auto` Execution §6). Governed work must not skip
   this check before declaring delivery complete.
 - No review stage shall execute inline with the stage it reviews
-- These prose mandates are necessary but not sufficient: runtime enforcement will be added in Phase 5 (P5-001, D43). Residual risk: an orchestrator that ignores this text can still run stages inline.
+- These prose mandates are now backed by shared fail-closed runtime enforcement for approval promotion and reviewer/evaluator-driven revise-and-continue replay. Any orchestrator behavior that bypasses those run-ledger transitions is a governance violation, not an accepted residual risk.
 - Isolation constraint applies to agent-gated review stages (3–6). Architect's own internal sub-invocations during Stage 2 (e.g. context-map, research-orchestrator) are governed by the architect archetype contract separately.
 
 ## Spawn invocation (BL-011)
 
 For stages **3–6**, invoke subagents with **only** the YAML spawn template in
 `skills/subagent-router/SKILL.md` §Spawn Prompt Contract (≤ ~20 lines). Stage semantics,
-canonical D21 `role_hint` strings, and gate wording live in **§Stage briefs: deliver-full**
-in that skill — load via `Read` after spawn; do not paste them into the spawn body.
+canonical D21 `role_hint` strings, BL-012 handoffs, and gate wording live in that skill —
+load **§Stage briefs: deliver-full** via `Read` after spawn; do not paste them into the
+spawn body.
 
 | Step | Stage | `subagent_type` | `stage_id` | `trigger` |
 |------|-------|-----------------|------------|-----------|
+| 2 | Architect | architect | `deliver_full_s2_architect` | context-isolation |
 | 3 | Governance Review | reviewer | `deliver_full_s3` | review-independence |
 | 4 | Planner | planner | `deliver_full_s4` | context-isolation |
 | 5 | Test Builder | builder | `deliver_full_s5` | review-independence |
@@ -83,6 +85,9 @@ in that skill — load via `Read` after spawn; do not paste them into the spawn 
 2. **Architect**
    - Investigate (explore codebase, research if needed)
    - Produce architecture brief: target model, boundaries, risks, success criteria
+   - Execute as the explicit fresh-context stage `deliver_full_s2_architect`; if this stage
+     cannot be spawned in the current runtime, stop after the declaration and fail closed
+     instead of drafting the architecture brief inline.
    - Gate: human (approve design)
 
 3. **Governance Review** — spawn per table; findings and recommended corrections per §Stage briefs: deliver-full
@@ -101,6 +106,11 @@ in that skill — load via `Read` after spawn; do not paste them into the spawn 
    - Compare implementation vs approved design
    - Final alignment summary
    - Gate: human (final approval)
+   - After the human explicitly approves delivery, append a read-only evidence record to
+     `.azoth/final-delivery-approvals.jsonl` before any governed closeout/W1–W4 step:
+     `{"session_id":"<session>","gate":"final-delivery","actor_type":"human","approved":true,"decision":"approved"}`
+   - `scripts/do_closeout.py` consumes that JSONL evidence read-only and must fail closed
+     if the latest matching session record is missing, non-human, malformed, or denied.
    - After human final approval passes: run `python scripts/version-bump.py --patch`
    - Log: `Stage 7 ✓ version bumped X → Y`
 

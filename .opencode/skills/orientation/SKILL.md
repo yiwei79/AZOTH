@@ -1,9 +1,9 @@
 ---
 name: orientation
 description: |
-  Load the v0.1.0 phase roadmap, backlog vs roadmap alignment, and expanded development
-  workflow when planning or editing `.azoth/roadmap.yaml` / backlog — not for routine
-  implementation work.
+  Load the v0.2.0 slice roadmap, backlog alignment, per-task specs under
+  `.azoth/roadmap-specs/v0.2.0/`, and expanded workflow when planning or editing
+  `.azoth/roadmap.yaml` / backlog — not for routine implementation work.
 ---
 
 # Orientation
@@ -11,9 +11,10 @@ description: |
 ## Overview
 
 Root `CLAUDE.md` stays small: identity, routing, core rules, and pointers. This skill
-holds the **full phase roadmap** (Phases 1–7 toward v0.1.0) and the **expanded
-development workflow** so agents load it only when planning, roadmap edits, or phase
-alignment—not on every session.
+holds the **historical phase roadmap** (Phases 1–7 → v0.1.0), the **active v0.2.0-p4
+stabilization and rollout slice** (lifecycle Phase 8 in `azoth.yaml`), and the
+**expanded development workflow** so agents load it
+only when planning, roadmap edits, or phase alignment—not on every session.
 
 ## When to Use
 
@@ -86,15 +87,29 @@ used before BL-013.
 - P6-002: L2 prompt optimization
 - P6-003: L3 human-gated architecture proposals — **done** (`/arch-proposal`, `pipelines/architecture-proposal.schema.yaml`, `scripts/architecture_proposal_validate.py`)
 
-### Phase 7: Publishing & public product 🎯 CURRENT (v0.0.7)
+### Phase 7: Publishing & public product ✅ COMPLETE (v0.0.7 → v0.1.0)
 
-- P4-003: CI for drift detection — **deferred from Phase 4**; public-repo readiness
-- P4-004: Publish to GitHub (public azoth) — **D35**, **D37**; pairs with v0.1.0 gate
+- P4-003: CI for drift detection — **shipped** (Phase 7)
+- P4-004: Publish to GitHub (public azoth) — **shipped**; **D35**, **D37**; v0.1.0 release gate met
 
-## Integration
+### Milestone v0.2.0 (milestone phase 4) — stabilization · release · control plane 🎯 CURRENT
 
-- **Canonical phase source for planning:** this file + `azoth.yaml` `phase` + `.azoth/roadmap.yaml` `active_version`.
+- **Canonical state:** `azoth.yaml` `version: 0.1.4.0`, `phase: 4`, `milestone: v0.2.0`, `lifecycle_phase: 8` (welcome strip); `.azoth/roadmap.yaml` `active_version: v0.2.0-p4`, `current_phase: 4`, `lifecycle_phase: 8`; per-task specs `.azoth/roadmap-specs/v0.2.0/<id>.yaml`; rollout plan **`.azoth/roadmap-specs/v0.2.0/V0.2.0-P4-ROLLOUT-PLAN.md`**.
+- **Phase policy:** v0.2.0-p4 is a stabilization freeze. Do not schedule new feature initiatives. New autonomy, memory, planning-bank, platform, or product ideas stay as proposal, inbox, or initiative-bank evidence until release readiness closes.
+- **Execution queue:** p3 carry-forward and autonomous-auto feature work are complete through **T-033**. The live p4 queue is task-backed rather than initiative-backed:
+  - **T-034** — freeze milestone baseline and release-readiness gate.
+  - **T-035** — generated surface and planning-truth stabilization.
+  - **T-036** — product extraction release candidate and consumer smoke test.
+  - **T-037** — public azoth publishing pipeline and release automation.
+  - **T-038** — personal root control-plane deployment model.
+  - **T-039** — release candidate validation and rollout closeout.
+- **Operating model:** keep three planes separate: `root-azoth` as private development workshop, `azoth` as clean extracted public product, and the operator personal root as an installed Azoth deployment for project and knowledge control.
+
+## Planning Sources
+
+- **Canonical phase source for planning:** this file + `azoth.yaml` (`phase` = milestone-local, `lifecycle_phase` = welcome strip) + `.azoth/roadmap.yaml` `active_version` + matching `current_phase` / `lifecycle_phase`.
 - **Root `CLAUDE.md`:** always-loaded; points here for roadmap and expanded workflow.
-- **Session cockpit (D52):** Rich dashboard and routing via `/start` → `scripts/welcome.py` (BL-007). On **Claude Code**, **P5-007** adds automatic plain orientation at session open via **SessionStart** + `**.azoth/session-orientation.txt`** mirror; see rule 9. **Cursor:** run `welcome.py` in the **integrated terminal** for the full Rich UI; **Bash** in chat + expand is an alternative. **Other IDEs without hooks:** `/start` or terminal `welcome.py`; do not assume hook injection.
+- **Session cockpit (D52):** Rich dashboard and routing via `/start` → `scripts/welcome.py` (BL-007). On **Claude Code**, **P5-007** adds automatic plain orientation at session open via **SessionStart** + `**.azoth/session-orientation.txt`** mirror; see rule 9. **Cursor:** run `welcome.py` in the **integrated terminal** for the full Rich UI; **Bash** in chat + expand is an alternative. **Codex:** use `/skills` or `$azoth-start` / `$azoth-next`; raw slash tokens are compatibility fallback, not native repo command registration. **Other IDEs without hooks:** `/start` or terminal `welcome.py`; do not assume hook injection.
+- **DYNAMIC-FULL-AUTO+:** `skills/dynamic-full-auto/SKILL.md` — parallel research + explore swarms, queen merge to **`SWARM_RESEARCH_DIGEST.yaml`**, helper `scripts/swarm_research_digest.py` (`init` / `append-pack` / `validate`). Use before gated `/auto` delivery, not as a substitute for scope/pipeline gates.
 - **Maintenance:** When phase checklists change, update **this skill**, not the root file,
 unless the change is a one-line “current phase” pointer in `CLAUDE.md`.

@@ -7,9 +7,23 @@ set -euo pipefail
 # Usage: bash /path/to/azoth/install.sh
 # ─────────────────────────────────────────────────────────────────
 
-AZOTH_VERSION="0.1.0-dev"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="$(pwd)"
+
+read_azoth_version() {
+    local manifest="$SCRIPT_DIR/azoth.yaml"
+    if [ -f "$manifest" ]; then
+        local version
+        version="$(sed -n 's/^version:[[:space:]]*//p' "$manifest" | head -n 1)"
+        if [ -n "$version" ]; then
+            printf '%s\n' "$version"
+            return
+        fi
+    fi
+    printf '%s\n' "0.1.0"
+}
+
+AZOTH_VERSION="$(read_azoth_version)"
 
 # ── Colors ──────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -58,6 +72,11 @@ fi
 if [ -f "opencode.jsonc" ] || [ -d ".opencode" ] || command -v opencode &>/dev/null; then
     PLATFORMS="${PLATFORMS}opencode "
     info "Detected: OpenCode"
+fi
+
+if [ -d ".codex" ] || command -v codex &>/dev/null; then
+    PLATFORMS="${PLATFORMS}codex "
+    info "Detected: Codex"
 fi
 
 if [ -d ".github" ] || [ -f ".github/copilot-instructions.md" ]; then
@@ -187,6 +206,15 @@ for platform in $PLATFORMS; do
                 "$SCRIPT_DIR/kernel/templates/platform-adapters/opencode/opencode.jsonc.template" > "opencode.jsonc"
             ok "OpenCode configured (.opencode/, opencode.jsonc)"
             ;;
+        codex)
+            info "Setting up Codex..."
+            mkdir -p ".codex/agents" ".codex/hooks"
+            cp "$SCRIPT_DIR/kernel/templates/platform-adapters/codex/config.toml.template" ".codex/config.toml"
+            cp "$SCRIPT_DIR/kernel/templates/platform-adapters/codex/hooks.json.template" ".codex/hooks.json"
+            cp "$SCRIPT_DIR/kernel/templates/platform-adapters/codex/user_prompt_submit_router.py.template" \
+                ".codex/hooks/user_prompt_submit_router.py"
+            ok "Codex configured (.codex/)"
+            ;;
         copilot)
             info "Setting up GitHub Copilot..."
             mkdir -p ".github/agents" ".github/prompts"
@@ -202,6 +230,10 @@ if [ "$INSTALL_SKILLS" = true ] && [ -d "$SCRIPT_DIR/skills" ]; then
     info "Installing skills..."
     mkdir -p "skills"
     cp -r "$SCRIPT_DIR/skills/"* "skills/" 2>/dev/null || warn "No skills found to install"
+    if [[ " $PLATFORMS " == *" codex "* ]]; then
+        mkdir -p ".agents/skills"
+        cp -r "$SCRIPT_DIR/skills/"* ".agents/skills/" 2>/dev/null || warn "No Codex skills found to install"
+    fi
     ok "Skills installed"
 elif [ "$INSTALL_SKILLS" = true ]; then
     warn "Skills directory not found in Azoth source (Phase 2 not yet built)"
@@ -290,6 +322,15 @@ fi
 ok "Gitignore updated"
 
 # ── Step 9: Generate manifest ──────────────────────────────────
+platforms_manifest_yaml() {
+    local platform
+    for platform in $PLATFORMS; do
+        printf '  - %s\n' "$platform"
+    done
+}
+
+PLATFORMS_YAML="$(platforms_manifest_yaml)"
+
 cat > "azoth.yaml" << MANIFEST
 name: azoth
 version: $AZOTH_VERSION
@@ -298,7 +339,8 @@ installed:
   kernel: true
   skills: $INSTALL_SKILLS
   agents: $INSTALL_AGENTS
-platforms: [$PLATFORMS]
+platforms:
+$PLATFORMS_YAML
 MANIFEST
 
 ok "Manifest generated (azoth.yaml)"

@@ -15,8 +15,9 @@ The agents below are available across all supported AI coding tools
 
 | Agent | Role | Trust |
 |-------|------|-------|
-| architect | Design, constraints, alignment, pipeline orchestration | high |
+| architect | Design, constraints, alignment | high |
 | builder | Implementation, testing, code changes | high |
+| orchestrator | Pipeline entry, session orchestration, declaration ownership | high |
 | planner | Task decomposition, sequencing, test strategy | high |
 | reviewer | Quality, governance, safety critique | high |
 
@@ -47,7 +48,7 @@ The agents below are available across all supported AI coding tools
 
 All agents operate under the Azoth Trust Contract:
 
-- **Entropy ceiling**: max 10 files changed per turn
+- **Entropy ceiling**: max 10 files changed per session
 - **Human gates**: kernel / governance changes always require human approval
 - **Posture tiers**: `always_do` / `ask_first` / `never_auto`
   (see `kernel/TRUST_CONTRACT.md`)
@@ -56,7 +57,10 @@ All agents operate under the Azoth Trust Contract:
 
 | Platform | Agents | Commands | Skills | IDE rules |
 |----------|--------|----------|--------|-----------|
+| Antigravity (Gemini) | — | `.agents/workflows/` | `.agents/skills/` | `.agents/rules/*.md` ← `azoth-deploy --platforms antigravity` |
 | Claude Code | `.claude/agents/` | `.claude/commands/` | `.claude/skills/` | hooks in `.claude/settings.json` |
-| GitHub Copilot | `.github/agents/` | `.github/prompts/` | `.github/skills/` | — |
+| Gemini CLI | `.gemini/agents/` | `.gemini/commands/` (TOML) | `.agents/skills/` | `GEMINI.md` + `.gemini/settings.json` |
+| GitHub Copilot | `.claude/agents/` default, `.github/agents/` optional mirror | `.github/prompts/` | `.github/skills/` | — |
 | OpenCode | `.opencode/agents/` | `.opencode/commands/` | `.opencode/skills/` | — |
+| Codex | `.codex/agents/*.toml` | skills (`azoth-*`; app slash list, CLI `/skills`) + literal Azoth tokens | `.agents/skills/` | `.codex/config.toml`, `.codex/hooks.json` |
 | Cursor | `.claude/agents/` (toggle) | `.claude/commands/` (toggle) | `skills/` (toggle) | `.cursor/rules/*.mdc` ← `azoth-deploy --platforms cursor` |

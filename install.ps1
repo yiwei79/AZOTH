@@ -6,9 +6,21 @@
 
 $ErrorActionPreference = "Stop"
 
-$AZOTH_VERSION = "0.1.0-dev"
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 $TARGET_DIR = Get-Location
+
+function Get-AzothVersion {
+    $manifest = Join-Path $SCRIPT_DIR "azoth.yaml"
+    if (Test-Path $manifest) {
+        $line = Get-Content $manifest | Where-Object { $_ -match '^version:\s*(.+)$' } | Select-Object -First 1
+        if ($line -match '^version:\s*(.+)$') {
+            return $Matches[1].Trim()
+        }
+    }
+    return "0.1.0"
+}
+
+$AZOTH_VERSION = Get-AzothVersion
 
 # ── Helpers ─────────────────────────────────────────────────────
 function Info($msg)  { Write-Host "[azoth] $msg" -ForegroundColor Cyan }
@@ -51,6 +63,11 @@ if ((Test-Path ".claude") -or (Get-Command claude -ErrorAction SilentlyContinue)
 if ((Test-Path "opencode.jsonc") -or (Test-Path ".opencode") -or (Get-Command opencode -ErrorAction SilentlyContinue)) {
     $PLATFORMS += "opencode"
     Info "Detected: OpenCode"
+}
+
+if ((Test-Path ".codex") -or (Get-Command codex -ErrorAction SilentlyContinue)) {
+    $PLATFORMS += "codex"
+    Info "Detected: Codex"
 }
 
 if ((Test-Path ".github") -or (Test-Path ".github\copilot-instructions.md")) {
@@ -176,6 +193,15 @@ foreach ($platform in $PLATFORMS) {
             $ocTemplate | Set-Content "opencode.jsonc" -NoNewline
             Ok "OpenCode configured (.opencode\, opencode.jsonc)"
         }
+        "codex" {
+            Info "Setting up Codex..."
+            New-Item -ItemType Directory -Force -Path ".codex\agents" | Out-Null
+            New-Item -ItemType Directory -Force -Path ".codex\hooks" | Out-Null
+            Copy-Item "$SCRIPT_DIR\kernel\templates\platform-adapters\codex\config.toml.template" ".codex\config.toml"
+            Copy-Item "$SCRIPT_DIR\kernel\templates\platform-adapters\codex\hooks.json.template" ".codex\hooks.json"
+            Copy-Item "$SCRIPT_DIR\kernel\templates\platform-adapters\codex\user_prompt_submit_router.py.template" ".codex\hooks\user_prompt_submit_router.py"
+            Ok "Codex configured (.codex\)"
+        }
         "copilot" {
             Info "Setting up GitHub Copilot..."
             New-Item -ItemType Directory -Force -Path ".github\agents" | Out-Null
@@ -193,6 +219,10 @@ if ($INSTALL_SKILLS -and (Test-Path "$SCRIPT_DIR\skills")) {
     Info "Installing skills..."
     New-Item -ItemType Directory -Force -Path "skills" | Out-Null
     Copy-Item "$SCRIPT_DIR\skills\*" "skills\" -Recurse -ErrorAction SilentlyContinue
+    if ($PLATFORMS -contains "codex") {
+        New-Item -ItemType Directory -Force -Path ".agents\skills" | Out-Null
+        Copy-Item "$SCRIPT_DIR\skills\*" ".agents\skills\" -Recurse -ErrorAction SilentlyContinue
+    }
     Ok "Skills installed"
 } elseif ($INSTALL_SKILLS) {
     Warn "Skills directory not found in Azoth source (Phase 2 not yet built)"

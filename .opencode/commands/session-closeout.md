@@ -1,51 +1,39 @@
 ---
 description: Unified eval + close + sync — run at the end of every session
+agent: orchestrator
 ---
 
 # /session-closeout
 
-Run this command before ending any session. It evaluates work, captures episodes,
-and syncs changes — all in a single pass.
+Run this command before ending any session. It evaluates the session, resolves whether
+the active state is a delivery scope or an exploratory session, performs the matching
+closeout path, and surfaces any queued inbox items.
+
+## Preconditions
+
+<!-- P1-016: Antigravity compliance -->
+- Resolve the active session first: use a live approved `.azoth/scope-gate.json` when one
+  exists; otherwise fall back to an active `.azoth/session-gate.json` for exploratory work.
+- If a delivery scope exists, verify session scope was maintained throughout.
+- See `docs/antigravity-compliance-matrix.md` for platform parity gaps.
 
 ## Part A: Evaluate Session Outputs
 
-Apply `agentic-eval` style review to work produced this session.
-
-### Evaluation Criteria
-
-1. Work aligns with the current phase goal (check `azoth.yaml`)
-2. Tests pass and cover new functionality
-3. Kernel integrity preserved (no unauthorized changes)
-4. Entropy stayed within bounds
-5. Architecture decisions (all in docs/DECISIONS_INDEX.md) respected
-
-### Output Format
-
-For each artifact reviewed:
-- artifact:
-- strengths:
-- gaps:
-- entropy or drift risk:
-- human alignment needed:
+Prepare a short end-of-session summary covering:
+- what was accomplished,
+- what remains open or risky,
+- whether human follow-up is still needed.
+- if the session changed roadmap / backlog / initiative planning state, what the
+  next operational backlog item or initiative now is, and whether it is already
+  operationalized in backlog rather than only existing as a spec or note.
 
 ## Part B: Close Session
 
-Compress session into actionable signals.
-
 ### Steps
 
-1. Summarize what was accomplished (1-3 sentences).
-
-2. Assess entropy surfaced this session:
-   - Files changed count and scope
-   - Any drift from approved state
-   - Unresolved decisions
-
-3. Ask: "Did this session reveal a reusable pattern or lesson?"
-   - If yes: capture as episode in `.azoth/memory/episodes.jsonl`
-   - Apply auto-classification using the Promotion Rubric's four questions
-
-4. Structure an episode:
+1. Summarize what was accomplished in 1–3 sentences and note open work, entropy, or drift.
+2. Ask whether the session revealed a reusable pattern or lesson. If yes, capture it in `.azoth/memory/episodes.jsonl`.
+3. Structure the episode:
    ```json
    {
      "id": "uuid",
@@ -55,59 +43,107 @@ Compress session into actionable signals.
      "goal": "session goal",
      "summary": "what happened",
      "lessons": ["lesson 1", "lesson 2"],
-     "tags": ["relevant-tags"]
+     "tags": ["relevant-tags"],
+     "reinforcement_count": 0
    }
    ```
+4. If a pattern is reinforced across 2+ episodes, propose M3 → M2 promotion. Never auto-promote.
 
-5. Check for promotion candidates:
-   - Any pattern reinforced across 2+ episodes? → Propose M3 → M2 promotion
-   - Present proposals to human (never auto-promote)
+### Closeout Modes
+
+- **Full closeout** = active delivery scope (`.azoth/scope-gate.json`) present. Run W1–W4.
+- **Light closeout** = active exploratory session (`.azoth/session-gate.json`) present but no active scope gate. Run W1 + W2-lite only.
+- **No active session** = stop softly and route to `/remember` or a new exploratory session instead of pretending there is a real delivery closeout to run.
 
 ### Write Checkpoints (W1 → W2 → W3 → W4)
 
 Execute in order. After each write, log its status before proceeding to the next.
 If any write is denied or fails, stop and follow the **On Failure** guidance below.
 
+**Governed closeout precondition:** Full closeout only. If the active scope is governed or `target_layer: M1`,
+`scripts/do_closeout.py` must validate the latest matching human final-delivery approval in
+`.azoth/final-delivery-approvals.jsonl` before W1. Approval evidence is consume-only during
+closeout: read it, validate it, and leave it unchanged. Failures must stop before the first
+W1–W4 mutation. See `docs/GATE_PROTOCOL.md`.
+
 **W1 — Append episode** → `.azoth/memory/episodes.jsonl`
 
 - Append the episode structured in step 4
+- If the session changed a platform adapter, command surface, or parity behavior, name the affected platform, the primary surface, any compatibility fallback, and remaining mechanical limits.
+- If Codex parity changed, say whether the change affected generated `.agents/skills/azoth-*` wrappers, literal-token fallback, `.codex/config.toml` / `.codex/hooks.json`, or the current minimal compatibility-hook contract.
 - Log: `W1 ✓ episode {id} appended — proceeding to W2`
 
-**W2 — Update session state** → `.azoth/bootloader-state.md` + `.azoth/scope-gate.json`
+**W1b — Optional reinforcement_count update** → `scripts/reinforcement_count.py`
 
-- Update `bootloader-state.md` with session outcome (phase, what changed, open decisions)
-- Close the scope gate: write `.azoth/scope-gate.json` with `approved: false` and add
+- Ask whether any prior episode's lesson explicitly recurred during this session.
+- If yes, require the human to confirm the exact episode id — never infer it from tags or prose.
+- Use the active `session_id` from `.azoth/scope-gate.json`; do not invent or reuse a prior session id.
+- Within an already-running `/session-closeout` flow, use only:
+  ```bash
+  python3 scripts/reinforcement_count.py <ep-id> --session-id <active-session-id> --source closeout
+  ```
+- Do **not** run `python3 scripts/do_closeout.py --reinforce-episode <ep-id>` here; it re-enters the full W1-W4 closeout path and can append W1 twice, re-run W2, and trigger an extra W4 patch bump.
+- Never increment the same prior episode more than once per session.
+- If no recurrence is confirmed, skip W1b silently — it is always optional.
+- Log: `W1b ✓ reinforcement_count incremented for {ep-id} — proceeding to W2` (or `W1b skipped — proceeding to W2`)
+
+**W2 — Update session state** → `.azoth/bootloader-state.md` + `.azoth/run-ledger.local.yaml` + gate closure
+
+- Update `bootloader-state.md` with session outcome (phase, what changed, open decisions).
+- Carry `session_mode: exploratory | delivery` through the session registry and `.azoth/session-state.md`.
+- **Light closeout:** close `.azoth/session-gate.json` with `status: closed` and `closed_at`; skip delivery-only continuity and versioning work.
+- If the session changed roadmap / backlog / initiative planning state, run a
+  **full-closeout only**
+  continuity audit before closing:
+  - move finished slices into backlog `status: complete` and roadmap `completed_tasks`
+    where applicable
+  - if an initiative `task_ref` / `spec_ref` still points at a now-completed slice,
+    retarget it to the next real pending slice or explicitly note why it remains on the
+    completed one
+  - if a slice is described as the next planned follow-on in roadmap / orientation /
+    close summary language, ensure it exists as a real backlog item or explicitly say it
+    is still spec-only
+  - if a backlog item was added and completed in the same session, say that explicitly
+    in the close summary so the human does not infer it was skipped
+- When `.azoth/run-ledger.local.yaml` contains a `sessions:` registry, use the active
+  scope `session_id` as the default selected session. If a matching session entry exists,
+  update that entry first: set it to `parked` when follow-up work remains or `closed` when
+  the session is finished, refresh its `next_action`, and preserve `active_run_id` only when
+  it still points at resumable work.
+- **W2-claim — Release write claim**: If a write claim is held by this session in
+  `.azoth/run-ledger.local.yaml`, release it now via `release_write_claim` / `run_ledger.py`.
+  If already absent, treat it as a no-op.
+- **Full closeout:** close the scope gate by writing `.azoth/scope-gate.json` with `approved: false` and add
   `closed_at` (ISO-8601 timestamp). Preserve all other fields so the gate is auditable.
-- Log: `W2 ✓ bootloader-state.md updated, scope gate closed — proceeding to W3`
-
-**W2 field checklist (BL-024)** — Before writing `bootloader-state.md`, align the **Current Phase** /
-toolkit summary with canonical sources (read from disk, not from memory):
-
-| Source | Fields to mirror |
-|--------|------------------|
-| `azoth.yaml` | `version` (delivery time-series), `phase` (1–7) |
-| `.azoth/roadmap.yaml` | Top-level `active_version`; in that version’s block, `current_patch` when `status: active`; `current_phase` / `current_phase_title` should stay consistent with `azoth.yaml` `phase` (see `tests/test_handoff_artifacts.py::test_phase_consistent`) |
-
-**W2 vs W4 ordering:** `python scripts/version-bump.py --patch` (W4) updates `azoth.yaml` `version` and the active block’s `current_patch` in `roadmap.yaml`. If you draft `bootloader-state.md` **before** W4, the header can show a **pre-bump** patch — **refresh the bootloader narrative after W4** (or perform W2 only after W4 for the version line).
-
-**W2b (after W4, recommended)** — Re-read `azoth.yaml` and `.azoth/roadmap.yaml` and fix any **Current Phase** one-liner in `bootloader-state.md` if it still reflects the old patch.
+- Cross-IDE handoff: if the session used **`.azoth/session-state.md`**, refresh it (active task,
+  files touched, next action, pending decisions) with the same `session_id` as the selected
+  registry entry. Preserve any stage-aware checkpoint fields already present there
+  (`pipeline`, `pipeline_position`, `current_stage_id`, `completed_stages`, `pending_stages`,
+  `pause_reason`, `active_run_id`) instead of collapsing continuity to prose only; if unused,
+  log `session-state skipped` in the alignment summary.
+- Keep W2 authoritative: if any later mirror diverges from repo-local state, W2 wins.
+- Log: `W2 ✓ bootloader-state.md updated, write claim released, gate closed` and proceed to W3 only for full closeout.
 
 **W3 — Update Claude Code memory** → `~/.claude/projects/<project-key>/memory/`
 
-- **Design (cross-IDE parity):** W1/W2 in `.azoth/` are **authoritative** for every platform (Claude Code, Cursor, OpenCode, Copilot). W3 **mirrors** that same snapshot for Claude Code’s native project memory (`project_status.md` aligns with `bootloader-state.md` + last episode). **Never** treat `~/.claude/.../memory/` as the only record — see **`docs/AZOTH_ARCHITECTURE.md`** (Cross-IDE session memory parity). Copilot/OpenCode do not read `~/.claude/`; parity for them is **committed W1/W2** (and `azoth.yaml`).
-- **Resolve the path (do not skip this step):** Claude Code stores per-project memory under `~/.claude/projects/`, where **`<project-key>`** is the absolute workspace path with the leading `/` removed and every `/` replaced by `-` (example: `/Users/you/work/root-azoth` → `-Users-you-work-root-azoth`). Full example: `~/.claude/projects/-Users-you-work-root-azoth/memory/`.
-- **Why W3 is often missed:** these files live **outside the repo**; Cursor assistants may lack access or treat W3 as “human-only.” If denied, retry with full permissions or complete W3 manually — do not close the session without updating memory or explicitly logging W3 failed.
-- **Minimum writes:** `project_status.md` (phase, version, roadmap patch, last episode, last delivery, next backlog step, open gaps) and **`MEMORY.md`** index line for Project Status. Add or refresh `feedback_*.md` when a durable preference changed.
-- Add new memories if the session revealed user preferences, feedback, or reference info
-- This ensures the next Claude Code session has full context even before Azoth's
-  own memory system (M3 episodes) is surfaced during SURVEY phase
-- Log: `W3 ✓ memory updated — all checkpoints complete`
+Full closeout only.
 
-**W4 — Bump patch version** → `python scripts/version-bump.py --patch`
+- W3 is a supplemental mirror of the repo-local closeout snapshot for Claude Code memory.
+  `.azoth/` remains authoritative; if W2 and W3 diverge, W2 wins.
+- Write or refresh `project_status.md` and the `MEMORY.md` Project Status index line.
+  Refresh `feedback_*.md` only when this session changed a durable preference.
+- If W3 is blocked, log `W3 deferred — sync ~/.claude/.../memory/ manually or rerun closeout in Claude Code`
+  and complete W1/W2/W4. Do not silently skip W3.
+- Log: `W3 ✓ memory updated — proceeding to W4`
+
+**W4 — Bump patch version and refresh orientation cache** → `python scripts/version-bump.py --patch`
+
+Full closeout only.
 
 - Run `python scripts/version-bump.py --patch` from the repo root
 - This always fires — every closeout increments the patch version
-- Log: `W4 ✓ version bumped X → Y`
+- Delete `.azoth/session-orientation.txt` (if present) so that IDEs without a `SessionStart` hook do not surface stale orientation in the next session.
+- Log: `W4 ✓ version bumped X → Y, orientation cache cleared`
 
 ### On Failure
 
@@ -146,41 +182,10 @@ Check the insight inbox and inform the human. Do NOT process insights during clo
 - **Do NOT read insight content beyond source attribution**. Full triage happens in `/intake`.
 - This step is informational — it never modifies inbox files or M3.
 
-## Permission Settings
-
-If your Claude Code permission mode requires per-call confirmation for Write/Edit tools,
-the W1–W3 checkpoint sequence will prompt three separate approvals. To allow uninterrupted
-batch writes for the duration of a session, add Write and Edit to your project's
-`settings.local.json` allow list:
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "Write(.azoth/**)",
-      "Edit(.azoth/**)",
-      "Write(.claude/projects/**)",
-      "Edit(.claude/projects/**)"
-    ]
-  }
-}
-```
-
-> **Governance caveat**: This grants Write/Edit without per-call confirmation for the
-> session duration — use only in trusted, scope-gated sessions (scope-gate.json approved).
-
 ## Output
 
-Present a close summary:
-```
-## Session Close — {date}
-- **Outcome**: {what was accomplished}
-- **Entropy**: {total delta, zone}
-- **Episodes captured**: {count}
-- **Promotions proposed**: {count or none}
-- **Alignment needed**: {open questions for human}
-- **Next**: {suggested next action}
-```
+Present a close summary with: outcome, session mode, entropy, episodes captured, promotion proposals,
+alignment needed, and next action.
 
 ## Rules
 

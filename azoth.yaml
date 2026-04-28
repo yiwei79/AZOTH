@@ -1,19 +1,21 @@
 name: root-azoth
-version: 0.0.7.3
+version: 0.1.4.0
 description: The Universal Agentic Toolkit
 scope:
   mode: project
   product_target: azoth
   is_development_workshop: false
-phase: 7
-decisions: 53
+phase: 4
+milestone: v0.2.0
+lifecycle_phase: 8
+decisions: 54
 layers:
   molecule:
     status: complete
     files: 14
   mineral:
     status: complete
-    skills: 14
+    skills: 17
   wave:
     status: active
     agents: 10
@@ -21,13 +23,14 @@ layers:
     status: active
     pipelines: 8
 memory:
-  episodes: 92
-  patterns: 9
+  episodes: 456
+  patterns: 26
   last_sync: null
 platforms:
   claude_code: primary
   opencode: compatible
   copilot: adapter
+  codex: adapter
 sync:
   source: null
   last_sync: null

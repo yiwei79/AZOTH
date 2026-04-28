@@ -10,6 +10,9 @@ Pipeline (mandatory order — must not skip steps):
 
 Then emits public CI + README from kernel templates (same contract as sync-config comments).
 
+If ``--out`` already exists, it is removed with ``shutil.rmtree`` before writing — never
+use a live git clone as ``--out``; extract to staging and copy/rsync into the target.
+
 Not azoth-sync.py (Tier 1→2 only).
 """
 
@@ -33,6 +36,22 @@ EXPECTED_PIPELINE: tuple[str, ...] = (
 
 TEXT_SUFFIXES = {".md", ".yaml", ".yml", ".json", ".py", ".txt", ".toml"}
 
+ALWAYS_EXCLUDE_PARTS = {
+    ".DS_Store",
+    ".git",
+    ".mypy_cache",
+    ".nox",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    "venv",
+}
+ALWAYS_EXCLUDE_FILE_SUFFIXES = (".pyc", ".pyo")
+ALWAYS_EXCLUDE_PREFIXES = (".claude/worktrees/",)
+
 PUBLIC_CI_TEMPLATE = Path("kernel/templates/github/workflows/ci-public-azoth.yml")
 PUBLIC_README_TEMPLATE = Path("kernel/templates/README.public.azoth.md")
 
@@ -45,11 +64,30 @@ DEFAULT_CLAUDE_SUBSTITUTIONS: dict[str, str] = {
     "TEST_DIR": "tests",
     "FORMATTER": "ruff format + ruff check",
     "TEST_FRAMEWORK": "pytest",
-    "AZOTH_VERSION": "0.0.7",
+    "AZOTH_VERSION": "0.1.0",  # fallback; overridden at extract time by _read_azoth_version
     "INSTALLED_SKILLS": "see skills/",
     "INSTALLED_AGENTS": "see agents/",
     "INSTALLED_PIPELINES": "see pipelines/",
 }
+
+
+def _read_azoth_version(source_root: Path) -> str:
+    """Read the version field from azoth.yaml in the source tree."""
+    azoth_path = source_root / "azoth.yaml"
+    if not azoth_path.is_file():
+        return DEFAULT_CLAUDE_SUBSTITUTIONS["AZOTH_VERSION"]
+    data = yaml.safe_load(azoth_path.read_text(encoding="utf-8"))
+    if isinstance(data, dict) and "version" in data:
+        return str(data["version"])
+    return DEFAULT_CLAUDE_SUBSTITUTIONS["AZOTH_VERSION"]
+
+
+def _build_claude_substitutions(source_root: Path) -> dict[str, str]:
+    """Build CLAUDE.md substitutions with AZOTH_VERSION read from azoth.yaml."""
+    subs = dict(DEFAULT_CLAUDE_SUBSTITUTIONS)
+    subs["AZOTH_VERSION"] = _read_azoth_version(source_root)
+    return subs
+
 
 README_SUBSTITUTIONS: dict[str, str] = {
     "PRODUCT_NAME": "Azoth",
@@ -84,13 +122,18 @@ def validate_pipeline(pe: dict[str, Any]) -> None:
         _die("product_extraction.extraction_pipeline must be a list")
     got = tuple(str(x) for x in pipe)
     if got != EXPECTED_PIPELINE:
-        _die(
-            f"extraction_pipeline must be exactly {EXPECTED_PIPELINE!r}, got {got!r}"
-        )
+        _die(f"extraction_pipeline must be exactly {EXPECTED_PIPELINE!r}, got {got!r}")
 
 
 def path_is_excluded(rel_posix: str, exclude_paths: list[str]) -> bool:
     """True if rel path (posix, relative to source root) matches any exclude prefix."""
+    parts = set(rel_posix.split("/"))
+    if parts & ALWAYS_EXCLUDE_PARTS:
+        return True
+    if rel_posix.endswith(ALWAYS_EXCLUDE_FILE_SUFFIXES):
+        return True
+    if any(rel_posix == raw.rstrip("/") or rel_posix.startswith(raw) for raw in ALWAYS_EXCLUDE_PREFIXES):
+        return True
     for raw in exclude_paths:
         pat = raw.replace("\\", "/").rstrip("/")
         if rel_posix == pat or rel_posix.startswith(pat + "/"):
@@ -117,6 +160,9 @@ def copy_tree_respecting_excludes(
         if not path.is_file():
             continue
         rel = path.relative_to(source).as_posix()
+        # Defense-in-depth: never copy VCS metadata even if exclude_paths is misconfigured.
+        if rel == ".git" or rel.startswith(".git/"):
+            continue
         if path_is_excluded(rel, exclude_paths):
             continue
         target = dest / path.relative_to(source)
@@ -202,14 +248,13 @@ def apply_transforms(
             if not isinstance(tpl, str):
                 raise RuntimeError("regenerate-from-template requires template: str")
             if src_name != "CLAUDE.md":
-                raise RuntimeError(
-                    f"unsupported regenerate-from-template source: {src_name!r}"
-                )
+                raise RuntimeError(f"unsupported regenerate-from-template source: {src_name!r}")
+            subs = _build_claude_substitutions(source_root)
             apply_regenerate_claude(
                 source_root,
                 dest_root,
                 tpl,
-                DEFAULT_CLAUDE_SUBSTITUTIONS,
+                subs,
                 dry_run=dry_run,
             )
         elif action == "set-scope-mode":
@@ -308,16 +353,12 @@ def extract_product(
     pe = get_product_extraction(cfg)
     validate_pipeline(pe)
     exclude_paths = pe.get("exclude_paths")
-    if not isinstance(exclude_paths, list) or not all(
-        isinstance(x, str) for x in exclude_paths
-    ):
+    if not isinstance(exclude_paths, list) or not all(isinstance(x, str) for x in exclude_paths):
         _die("product_extraction.exclude_paths must be a list of strings")
 
     sanitize_cfg = cfg.get("sanitize", {})
     strip_patterns = sanitize_cfg.get("strip_patterns", [])
-    if not isinstance(strip_patterns, list) or not all(
-        isinstance(x, str) for x in strip_patterns
-    ):
+    if not isinstance(strip_patterns, list) or not all(isinstance(x, str) for x in strip_patterns):
         _die("sanitize.strip_patterns must be a list of strings")
 
     transforms = pe.get("transform")
@@ -330,7 +371,9 @@ def extract_product(
         _die(f"--source is not a directory: {source}")
 
     if dry_run:
-        print("dry-run: step 1 only (listing copies); transforms need a real tree — use full extract or --validate-only")
+        print(
+            "dry-run: step 1 only (listing copies); transforms need a real tree — use full extract or --validate-only"
+        )
         n = copy_tree_respecting_excludes(source, dest, exclude_paths, dry_run=True)
         print(f"   would copy {n} files")
         print("done (dry-run).")
@@ -372,7 +415,12 @@ def main() -> int:
         "--out",
         type=Path,
         default=None,
-        help="Output directory for extracted product (required unless --validate-only)",
+        help=(
+            "Output directory for extracted product (required unless --validate-only). "
+            "Destructive: if this path already exists, it is deleted entirely "
+            "(shutil.rmtree), then recreated — do not point at a git clone or any "
+            "directory you need to keep; use a staging path and rsync into the target."
+        ),
     )
     parser.add_argument(
         "--config",

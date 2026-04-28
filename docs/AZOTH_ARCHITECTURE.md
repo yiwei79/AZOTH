@@ -2,6 +2,11 @@
 
 > Finalized: 2026-04-03 | Session: {{REDACTED}} Architect Session
 > Status: APPROVED — ready for Phase 1 implementation
+>
+> Strategic follow-up: see `docs/CO_PRIMARY_PLATFORM_BLUEPRINT.md` for the
+> protocol-first platform model that treats **Claude Code** and **Codex** as
+> co-primary command surfaces while preserving the adapter pattern for the
+> remaining target platforms.
 
 ---
 
@@ -11,7 +16,7 @@ Extract proven governance patterns, bootloader philosophy, and self-improvement
 loops from a production agentic framework into a standalone, portable,
 "drop-and-start" personal toolkit that:
 
-- Works natively with Claude Code (primary) and is compatible with OpenCode + GitHub Copilot
+- Works natively with the co-primary hosts Claude Code and Codex, while remaining compatible with OpenCode + GitHub Copilot
 - Embodies "be water" philosophy: minimal invariant kernel → emergent structure
 - Enables trusted autonomous agent swarms with single human alignment point
 - Self-improves from experience (L1 → L2 → L3 maturity ladder)
@@ -91,7 +96,7 @@ The absolute minimum that makes Azoth Azoth. ~10 files, ~2000 lines total.
 The formal contract that enables "walk away without anxiety":
 
 1. **Entropy Ceiling**: Every agent action has a bounded blast radius
-   - File changes: max N files per turn without human approval
+   - File changes: max N files per session without human approval
    - Governance files: NEVER without human approval
    - New dependencies: NEVER without human approval
 
@@ -285,9 +290,11 @@ orchestration commands ship in this scaffold (for example `/next`, `/intake`, `/
 | `/session-closeout` | Lifecycle | Unified eval + close + sync |
 | `/remember` | Lifecycle | Capture cross-session learning |
 | `/auto` | Pipeline | Auto-compose and execute pipeline (default) |
+| `/dynamic-full-auto` | Pipeline | DYNAMIC-FULL-AUTO+ discovery swarms, digest, Γ, then delivery handoff |
 | `/deliver` | Pipeline | Lean pipeline (pre-approved work) |
 | `/deliver-full` | Pipeline | Full pipeline with governance gates |
 | `/plan` | Pipeline | Structured planning without execution |
+| `/context-architect` | Pipeline | Dependency map and blast radius (read-only) |
 | `/eval` | Quality | Governance quality gate |
 | `/test` | Quality | Unit test generation |
 | `/promote` | Governance | Review promotion candidates |
@@ -419,8 +426,9 @@ goal_clarification:
 
 ### Auto-Pipeline (D23)
 
-Default behavior when user doesn't specify a pipeline. The Architect classifies the
-goal and composes a pipeline from presets.
+Default behavior when user doesn't specify a pipeline. The Orchestrator classifies the
+goal, reads the latest local context, and composes a pipeline from a shared stage-family
+vocabulary. Presets remain conservative reference compositions, not rigid output targets.
 
 ```yaml
 auto_pipeline:
@@ -430,26 +438,61 @@ auto_pipeline:
     scope: kernel | skills | agents | pipelines | docs | mixed
     risk: governance-change | breaking-change | additive | cosmetic
     complexity: simple | medium | complex
-    knowledge: known-pattern | needs-research | novel
+    knowledge: known-pattern | needs-research | novel | instruction-refinement
+
+  shared_stage_families:
+    - context-recall
+    - discovery-evidence-research
+    - architect-design
+    - review
+    - plan
+    - execute
+    - quality-gate
+    - closeout
+
+  discovery_triggers:
+    - low-solution-confidence
+    - conflicting-memory-or-pattern-evidence
+    - cross-surface-drift
+    - latest-context-dependency
+    - gate-finding-evidence-insufficient
 
   composition_rules:
-    - if risk == governance-change: ALWAYS full pipeline
-    - if scope == kernel: ALWAYS full pipeline
-    - if complexity == simple AND risk == cosmetic:
-        pipeline: [planner, builder, architect-review]
-    - if complexity == simple AND risk == additive:
-        pipeline: [planner, test-builder, builder, architect-review]
+    - if risk == governance-change:
+        reference_preset: full
+        stage_families: [architect-design, review, plan, execute, quality-gate, closeout]
+        discovery_policy: conditional
+    - if scope == kernel:
+        reference_preset: full
+        stage_families: [architect-design, review, plan, execute, quality-gate, closeout]
+        discovery_policy: conditional
     - if knowledge == needs-research:
-        inject: research-phase into architect stage
+        reference_preset: research
+        stage_families: [discovery-evidence-research, architect-design, plan, execute, quality-gate, closeout]
+        discovery_policy: required
+    - if knowledge == instruction-refinement:
+        reference_preset: full
+        stage_families: [context-recall, architect-design, review, plan, execute, quality-gate, closeout]
+        discovery_policy: conditional
     - if scope == docs:
-        pipeline: [architect, builder, architect-review]
-    - default: full pipeline
+        reference_preset: docs
+        stage_families: [architect-design, execute, closeout]
+        discovery_policy: conditional
+    - default:
+        reference_preset: full
+        stage_families: [architect-design, review, plan, execute, quality-gate, closeout]
+        discovery_policy: conditional
 
   declaration:
     format: visual-ui
     shows: [goal, classification, composed-stages, rationale]
     gate: human-approve  # Human can override composition
 ```
+
+Discovery / evidence / research is a **cross-cutting capability** that any auto-family
+run may insert when the trigger vocabulary warrants it. `dynamic-full-auto` uses this
+same engine in a stronger autonomy posture: it begins with an autonomy budget and may
+continue end-to-end, but it is not a discovery wrapper or a forced handoff mode.
 
 ### Pipeline Presets (D28)
 
@@ -494,7 +537,7 @@ Every pipeline gate must declare its type:
 CLAUDE.md (universal)
     ├── Claude Code ──── primary, full features
     ├── OpenCode ─────── reads CLAUDE.md natively (free compatibility)
-    ├── GitHub Copilot ── reads CLAUDE.md + .github/ adapter files
+  ├── GitHub Copilot ── reads CLAUDE.md + .github/prompts/ and can discover .claude/agents/
     └── AGENTS.md ──────── AAIF standard (Copilot, OpenCode, Codex, Cursor, Gemini)
 ```
 
@@ -511,24 +554,25 @@ Azoth's kernel stays platform-agnostic.
 azoth init / azoth-deploy.py
   ├─ ALWAYS: CLAUDE.md, AGENTS.md, kernel/, skills/, .azoth/
   ├─ Claude Code detected? → .claude/ (commands, agents, settings)
+  ├─ Codex detected?       → .codex/ (agents, config, hooks) + `.agents/skills/azoth-*` command wrappers
   ├─ OpenCode detected?    → .opencode/ (agents/, commands/, opencode.json)
-  ├─ Copilot detected?     → .github/ (agents/, prompts/, copilot-instructions.md)
+  ├─ Copilot detected?     → .github/ (prompts/, copilot-instructions.md) + .claude/agents/ by default
   └─ Cursor (always in dev-sync) → .cursor/rules/*.mdc (from kernel/templates/platform-adapters/cursor/)
 ```
 
 ### Compatibility Matrix
 
-| Component | Claude Code | OpenCode | Copilot | Cursor |
-|-----------|-------------|----------|---------|--------|
-| CLAUDE.md | ✅ Primary | ✅ Native | ✅ Reads | ✅ via toggle |
-| AGENTS.md | ✅ Native | ✅ Native | ✅ Native | ✅ Native |
-| Skills (SKILL.md) | ✅ .claude/skills/ | ✅ .opencode/skills/{name}/ | ✅ .github/skills/ | ✅ .claude + repo (toggle) |
-| Agents | .claude/agents/ | .opencode/agents/ | .github/agents/ | .claude/agents/ (toggle) |
-| Commands | .claude/commands/ | .opencode/commands/ | .github/prompts/ | .claude/commands/ (toggle) |
-| `.cursor/rules/*.mdc` | — | — | — | ✅ from `azoth-deploy --platforms cursor` |
-| Config | .claude/settings.json | opencode.json | VS Code settings | Cursor Settings + toggle |
-| Hooks | ✅ Full hook system | ✅ Plugin system | ⚠️ Limited | ❌ (use `.mdc` parity rules) |
-| MCP | .mcp.json | opencode.json `mcp` key | VS Code MCP | VS Code MCP |
+| Component | Claude Code | OpenCode | Copilot | Codex | Cursor |
+|-----------|-------------|----------|---------|-------|--------|
+| CLAUDE.md | ✅ Primary | ✅ Native | ✅ Reads | ✅ via AGENTS/config context | ✅ via toggle |
+| AGENTS.md | ✅ Native | ✅ Native | ✅ Native | ✅ Native | ✅ Native |
+| Skills (SKILL.md) | ✅ .claude/skills/ | ✅ .opencode/skills/{name}/ | ✅ .github/skills/ | ✅ `.agents/skills/` + `azoth-*` wrappers | ✅ .claude + repo (toggle) |
+| Agents | .claude/agents/ | .opencode/agents/ | .claude/agents/ by default, optional .github/agents/ mirror | `.codex/agents/*.toml` | .claude/agents/ (toggle) |
+| Commands | .claude/commands/ | .opencode/commands/ | .github/prompts/ | `/skills` wrappers (`azoth-*`; `$azoth-start` calm-flow default) + literal-token fallback | .claude/commands/ (toggle) |
+| `.cursor/rules/*.mdc` | — | — | — | — | ✅ from `azoth-deploy --platforms cursor` |
+| Config | .claude/settings.json | opencode.json | VS Code settings | `.codex/config.toml` | Cursor Settings + toggle |
+| Hooks | ✅ Full hook system | ✅ Plugin system | ⚠️ Limited | ⚠️ Hooks-capable (`SessionStart`, `UserPromptSubmit`, Bash `PreToolUse`/`PostToolUse`, `Stop`; non-Bash interception still unavailable) | ❌ (use `.mdc` parity rules) |
+| MCP | .mcp.json | opencode.json `mcp` key | VS Code MCP | `.codex/config.toml` / plugins / MCP | VS Code MCP |
 
 ### Cursor IDE (Claude) and Claude Code parity
 
@@ -543,9 +587,25 @@ Cursor can consume the **same** Azoth sources as Claude Code when **Settings →
 | Scope / pipeline gate enforcement | **Mechanical** (deny Write/Edit) | **Behavioral** — enforced by always-applied **`.cursor/rules/*.mdc`** instructing the model to read `.azoth/scope-gate.json` and `.azoth/pipeline-gate.json` and refuse writes when invalid |
 | **Subagent isolation (D21)** | `Agent(subagent_type=...)` | **`Task`** with matching `subagent_type` (Azoth archetypes) — orchestrator stays in main chat; **must not** inline all pipeline stages when `Task` is available (see `claude-code-parity.mdc`) |
 
+**GitHub Copilot parity:** Copilot can load `.github/prompts/`, `.github/copilot-instructions.md`, and discover Azoth agents, but freeform chat is not guaranteed to mechanically switch into slash-command execution. Therefore Copilot must treat literal pipeline tokens (`/auto`, `/dynamic-full-auto`, `/deliver`, `/deliver-full`) as explicit pipeline-entry requests, keep the orchestrator in main chat, and use staged `Task` / subagent execution when available rather than inlining the full pipeline in one thread.
+
+**Codex parity:** Codex does **not** currently document repo-defined custom slash-command registration. Therefore Azoth projects command semantics into Codex through a calm-flow control plane: `$azoth-start` is the canonical daily entry surface, generated `azoth-*` wrappers remain discoverable through `/skills`, and literal `/auto`-style prompt text remains a **compatibility fallback**, not the primary UX contract. Codex should be treated as **source-compatible, instruction-first, skill-routed**: `.codex/config.toml` and `.codex/agents/*.toml` provide the main control plane, `.codex/hooks/user_prompt_submit_router.py` remains as a narrow compatibility hook, and there is still no broad Claude-style `Write/Edit` interception. When a command still uses `body.mode: legacy_claude_markdown`, the Codex wrapper must state that it is bridging through the matching `.claude/commands/*.md` body rather than overstating independence from the legacy mirror.
+
+**Codex hook protocol (confirmed via runtime errors):** Codex hooks have **strict stdout requirements** that differ from Claude Code:
+
+| Hook type | Allowed stdout | Forbidden |
+|-----------|---------------|-----------|
+| SessionStart | Plain text (becomes session context) | — |
+| UserPromptSubmit | `additionalContext`, `updatedInput`, `decision: block` | — |
+| PreToolUse | Bash-only mechanical deny via `permissionDecision: deny` or legacy `decision: block` | Non-Bash interception (`Write`, `Edit`, MCP, web tools) |
+| PostToolUse | Bash-only `additionalContext`; `decision: block` changes continuation behavior | Undoing side effects from a Bash command that already ran |
+| Stop | Valid JSON **or** empty stdout | Plain text, emoji, human-readable messages |
+
+**Rules for Codex hooks:** (1) The default Azoth Codex adapter keeps only a `UserPromptSubmit` compatibility hook because Codex surfaces hook activity prominently in the UI. (2) `additionalContext` remains advisory injection for `UserPromptSubmit`; it is routing help, not authorization. (3) Enforcement that requires non-Bash `Write/Edit` deny still lives in `developer_instructions` in `.codex/config.toml`. (4) If future Codex hooks are added back, re-validate the host protocol surface instead of assuming Claude-style semantics. `scripts/azoth-deploy.py` still lints `.codex/hooks.json` for protocol violations on every deploy/check run. See `docs/platform-guides/codex-guide.md` § Codex Hook Protocol Rules.
+
 **PreToolUse hook commands** in `.claude/settings.json` should use **paths relative to the repository root** (for example `python3 .claude/hooks/edit_pretooluse_orchestrator.py`) so clones and CI do not embed machine-specific absolute paths. Claude Code runs hooks with the **project workspace as the current working directory**. If a hook fails to resolve, use an absolute path only for local debugging.
 
-**Entropy (Write/Edit, P5-002):** `kernel/TRUST_CONTRACT.md` §1 states per-*turn* limits for agents. The **PreToolUse** entropy hook runs **once per tool call**, not per LLM turn. In this toolkit, **cumulative entropy_delta** and file/line caps are **session-scoped**, keyed to `scope-gate.json` `session_id`, and reset when the scope card changes—mechanical alignment with an approved scope, not a literal per-tool-call interpretation of the §1 table alone.
+**Entropy (Write/Edit, P5-002):** `kernel/TRUST_CONTRACT.md` §1 defines **session-scoped** limits for agents. The **PreToolUse** entropy hook runs **once per tool call** and accumulates counters within the active `scope-gate.json` `session_id`, resetting when the scope card changes—mechanical alignment with an approved scope.
 
 **Alignment summary (Write/Edit, P5-003):** `kernel/TRUST_CONTRACT.md` §2 defines the human-facing Alignment Summary. For **machine-comparable** handoffs, pipeline stages emit typed YAML per **BL-012** (`pipelines/stage-summary.schema.yaml`). The **PreToolUse orchestrator** (`.claude/hooks/edit_pretooluse_orchestrator.py`) runs **after** the scope gate and **before** entropy: for **Write** and **Edit** targeting `.azoth/handoffs/**/*.yaml|yml`, it validates **one YAML document** per call using shared structural checks (`.claude/hooks/stage_summary_validate.py`). Invalid **handoff content** → deny with `[alignment-summary]`; **malformed JSON on stdin** remains fail-open (same rationale as scope/entropy hooks). **Edit** resolves `old_string`/`new_string` to candidate text (single match), then applies the same validation as **Write**.
 
@@ -559,18 +619,20 @@ Cursor can consume the **same** Azoth sources as Claude Code when **Settings →
 
 Azoth treats **repo-local state** as the **authoritative** narrative every platform must converge on. **Claude Code project memory** (`~/.claude/projects/<project-key>/memory/`) is a **supplemental mirror**, not a second source of truth.
 
-Canonical checkpoint text lives in **`.claude/commands/session-closeout.md`** (D46 copies to **`.github/prompts/session-closeout.prompt.md`** and **`.opencode/commands/session-closeout.md`**).
+Canonical checkpoint contract lives in **`commands/session-closeout/command.yaml`** plus **`commands/session-closeout/body.md`**; deploy outputs mirror it to **`.claude/commands/session-closeout.md`**, **`.github/prompts/session-closeout.prompt.md`**, and **`.opencode/commands/session-closeout.md`**.
 
-| Checkpoint | What it writes | Claude Code | Cursor | OpenCode | GitHub Copilot |
-|------------|----------------|-------------|--------|----------|----------------|
-| **W1** | `.azoth/memory/episodes.jsonl` | ✅ | ✅ | ✅ | ✅ (same repo path) |
-| **W2** | `.azoth/bootloader-state.md`, `.azoth/scope-gate.json` | ✅ | ✅ | ✅ | ✅ (same repo paths) |
-| **W3** | `~/.claude/projects/<project-key>/memory/` (`project_status.md`, `MEMORY.md` index, optional `feedback_*.md`) | ✅ native | ⚠️ **attempt** with host FS access; else log `W3 deferred` | N/A | N/A |
-| **W4** | `python scripts/version-bump.py --patch` | ✅ | ✅ | ✅ | ✅ |
+| Checkpoint | What it writes | Claude Code | Codex | Cursor | OpenCode | GitHub Copilot |
+|------------|----------------|-------------|-------|--------|----------|----------------|
+| **W1** | `.azoth/memory/episodes.jsonl` | ✅ | ✅ | ✅ | ✅ | ✅ (same repo path) |
+| **W2** | `.azoth/bootloader-state.md`, `.azoth/run-ledger.local.yaml`, `.azoth/scope-gate.json` (`.azoth/session-state.md` when present) | ✅ | ✅ | ✅ | ✅ | ✅ (same repo paths) |
+| **W3** | `~/.claude/projects/<project-key>/memory/` (`project_status.md`, `MEMORY.md` index, optional `feedback_*.md`) | ✅ native | ⚠️ **best-effort** with host FS access; else log `W3 deferred` | ⚠️ **attempt** with host FS access; else log `W3 deferred` | N/A | ⚠️ **attempt mirror write** so later Claude Code sessions can read the latest Copilot-authored closeout |
+| **W4** | `python scripts/version-bump.py --patch` | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-**Session start (all IDEs):** **`azoth-memory.mdc`** (Cursor) / same paths in Claude Code — read **`.azoth/memory/patterns.yaml`**, **`.azoth/bootloader-state.md`**, **`.azoth/session-state.md`** when present. Handoff **`session-state.md`** is separate from the W2 bullets in `/session-closeout` (update it when you intentionally leave a cross-IDE capsule).
+**Session start (all IDEs):** **`azoth-memory.mdc`** (Cursor) / same paths in Claude Code — read **`.azoth/memory/patterns.yaml`**, **`.azoth/bootloader-state.md`**, **`.azoth/session-state.md`** when present. Handoff **`session-state.md`** is separate from the W2 bullets in `/session-closeout` (update it when you intentionally leave a cross-IDE capsule). Stage-aware continuity uses `.azoth/run-ledger.local.yaml` as the durable source of truth and mirrors `pipeline`, `pipeline_position`, `current_stage_id`, `completed_stages`, `pending_stages`, `pause_reason`, and `active_run_id` into `session-state.md` for cross-IDE resume.
 
-**Parity rule:** **W1 + W2 + W4** are the **shared contract** — every tool edits or commits the **same files in the repo**. **W3** exists only so Claude Code’s native project-memory layer stays aligned; **Cursor** must mirror that intent (attempt W3 or log deferral per **`kernel/templates/platform-adapters/cursor/claude-code-parity.mdc.template`**). **OpenCode** and **GitHub Copilot** do not consume `~/.claude/projects/.../memory/`; their parity is **committed W1/W2** (plus `azoth.yaml`). If W2 and W3 diverge, **W2 wins**; refresh W3 on the next closeout run from Claude Code or a Cursor session with access.
+**Parity rule:** **W1 + W2 + W4** are the **shared contract** — every tool edits or commits the **same files in the repo**. **W3** exists so Claude Code’s native project-memory layer stays aligned; **Codex**, **Cursor**, and **GitHub Copilot** should treat it as a best-effort mirror (attempt W3 or log deferral per the platform adapter rules) instead of a closeout blocker. **Codex**, **OpenCode**, and **GitHub Copilot** still do not **consume** `~/.claude/projects/.../memory/` as a native runtime surface; their parity is **committed W1/W2** (plus `azoth.yaml`). If W2 and W3 diverge, **W2 wins**; refresh W3 on the next closeout run from Claude Code or another host with access.
+
+**Governed closeout rule:** before `scripts/do_closeout.py` performs any W1–W4 mutation for a governed scope or `target_layer: M1`, it must validate the latest matching human `final-delivery` approval for the active `session_id` in `.azoth/final-delivery-approvals.jsonl`. Approval evidence is consume-only during closeout: read it, validate it, and leave it unchanged. Missing, malformed, missing-match, or denied records fail closed before W1.
 
 ### Platform File Format Differences
 
@@ -601,17 +663,26 @@ implicitly allowed tools  → permission: allow
 This enables cross-platform workspace compatibility without waiting for the Phase 4 installer.
 
 ```
-agents/**/*.agent.md  ─┬→ .claude/agents/<name>.md         (strip Azoth-specific fields)
-                       ├→ .github/agents/<name>.agent.md   (remap tools, drop tier/skills)
-                       └→ .opencode/agents/<name>.md       (posture→permission, infer mode)
+agents/**/*.agent.md            ─┬→ .claude/agents/<name>.md         (Claude Code + default Copilot path)
+                                 ├→ .github/agents/<name>.agent.md   (optional Copilot compatibility mirror)
+                                 ├→ .opencode/agents/<name>.md       (posture→permission, infer mode)
+                                 └→ .codex/agents/<name>.toml        (Codex custom agents)
 
-.claude/commands/*.md ─┬→ .github/prompts/<name>.prompt.md (add agent binding)
-                       └→ .opencode/commands/<name>.md     (add $ARGUMENTS support)
+commands/<name>/command.yaml    ─┬→ .claude/commands/<name>.md       (deployed Claude mirror)
+ + canonical body.md            ├→ .github/prompts/<name>.prompt.md (add agent binding)
+                                 ├→ .opencode/commands/<name>.md     (add $ARGUMENTS support)
+                                 └→ .agents/skills/azoth-<name>/     (Codex command-wrapper skills + UI metadata)
 
-skills/**/ ────────────→ .opencode/skills/<name>/SKILL.md  (per-skill subdirectory)
+commands/<name>/command.yaml    ─┬→ same deployed outputs as above
+ + legacy `.claude/commands/*.md`┘   while `body.mode: legacy_claude_markdown` remains live
+
+skills/**/ ─────────────────────┬→ .opencode/skills/<name>/SKILL.md  (per-skill subdirectory)
+                                 └→ .agents/skills/<name>/SKILL.md    (Codex / Antigravity shared skill path)
+kernel/templates/platform-adapters/codex/*.template
+                                 → .codex/*                            (Codex project adapter files)
 kernel/templates/platform-adapters/cursor/*.mdc.template
-                       → .cursor/rules/<name>.mdc           (Cursor always-on rules)
-                         AGENTS.md                          (generated broadcast layer)
+                                 → .cursor/rules/<name>.mdc           (Cursor always-on rules)
+                                   AGENTS.md                          (generated broadcast layer)
 ```
 
 Prior art: Caliber (`caliber-ai-org/ai-setup`) uses a similar canonical→many approach
@@ -735,7 +806,7 @@ sanitize:
 ```
 azoth/
 ├── CLAUDE.md                     # Azoth development instructions
-├── LICENSE                       # MIT
+├── LICENSE                       # PolyForm Noncommercial 1.0.0 (see file)
 ├── azoth.yaml                    # Toolkit manifest
 ├── install.sh                    # macOS/Linux installer
 ├── install.ps1                   # Windows installer
@@ -772,9 +843,9 @@ azoth/
 │   └── tier4-utility/
 │
 ├── instructions/                 # Portable instruction library
-├── commands/                     # Dual-write command templates
-│   ├── claude/
-│   └── copilot/
+├── commands/                     # Neutral command contracts + authored bodies
+│   ├── <name>/command.yaml
+│   └── <name>/body.md            # when migrated; legacy_claude_markdown bridges still exist for some families
 ├── pipelines/                    # Layer 3: CURRENT
 ├── scaffold/                     # Coded agent templates
 │   ├── coded-agent/
@@ -794,6 +865,8 @@ azoth/
     ├── telemetry/
     └── sync-log.jsonl
 ```
+
+**Developer preflight (P1-003):** When `scripts/pipeline_lint.py` exists, run it on `pipelines/*.pipeline.yaml` before relying on composed `/auto` output; CI/pytest should cover happy-path and one malformed fixture once the linter lands.
 
 ---
 
@@ -861,13 +934,13 @@ azoth/
 | D43 | Commit-time governance enforcement hooks | Git `commit-msg` hook + `scripts/git_commit_policy.py` reject `Co-Authored-By:` trailers; `scripts/azoth_install_git_hooks.py` sets `core.hooksPath` — VCS-time complement to BL-002 PreToolUse scope-gate (write-time); further format rules optional |
 | D44 | Pipeline Stage 6 quality rubric for structured content | Stage 6 (Architect Review) must score generated structured content against minimum depth thresholds before passing the delivery gate — prevents shallow first-pass output |
 | D45 | Context-sensitive memory retrieval | Grep-by-tags read interface for M3/M2; dual trigger at SURVEY + Stage 0; implemented as Layer 1 skill (`context-recall`), not kernel |
-| D46 | Dev-sync script: workspace self-installation to platform directories | `scripts/azoth-deploy.py` translates canonical agents/skills/commands into Claude Code, Copilot, OpenCode platform-specific files + AGENTS.md broadcast layer |
+| D46 | Dev-sync script: workspace self-installation to platform directories | `scripts/azoth-deploy.py` translates canonical agents/skills/commands into Claude Code, Copilot, OpenCode, Codex platform-specific files + AGENTS.md broadcast layer |
 | D47 | Persistent backlog system: `.azoth/backlog.yaml` | Operational work queue; items carry `target_layer` (M1/M2/M3/infrastructure) and `delivery_pipeline` (governed/standard); active items cannot be silently dropped — deferral requires `target_version` |
 | D48 | Versioned roadmap: `.azoth/ROADMAP.yaml` | Supersedes D39; multi-version structure (active/planned/backlog/complete); tasks reference backlog items; CLAUDE.md becomes rendered summary; explicit deferral with reason |
 | D49 | Intake 3-axis triage | Extends D33 step 3: for each integrated insight, human simultaneously decides (1) M3 action, (2) M2 candidate flag, (3) backlog item needed — three independent axes, any combination valid |
 | D50 | Session scope card | `/next` outputs a scope card (1 primary + max 2 secondary goals); human approves → writes `.azoth/scope-gate.json`; validator rejects mixed M1+runtime sessions |
 | D51 | Formalized M2→M1 promotion path | M1 changes are a governed event: `target_layer: M1` backlog item + `/deliver-full` pipeline; M1 changes happen between sessions only; scope card validator enforces isolation |
-| D52 | Session Welcome UX: `/start` + `scripts/welcome.py` | Rich-rendered terminal dashboard at session open; `scripts/welcome.py` reads `azoth.yaml`, `backlog.yaml`, `scope-gate.json`, recent episodes and renders via Python `rich` library — `box.HEAVY` identity header, `box.MINIMAL` phase progress strip, `Columns([health, backlog])` 2-column body with `box.ROUNDED` panels, last-session strip, START options panel; Rich handles all Unicode/emoji width via wcwidth internally — zero manual padding; context-sensitive option menu (resume if gate active, else /next); `.claude/commands/start.md` runs the script via Bash then routes user option; UX entry point for D41 bootstrap loop; Phase 4 deliverable; Phase 5 (Claude Code): `hooks.SessionStart` → `.claude/hooks/session_start_welcome.py` runs `welcome.py --plain`, tees stdout to `.azoth/session-orientation.txt` (gitignored), injects same text into model context; matchers `startup|resume`; optional per-hook `timeout` (seconds, hooks doc); `CLAUDE.md` rule 9 — default trust injection, `Read` file for verbatim chat only; Cursor has no SessionStart — parity rules + manual script |
+| D52 | Session Welcome UX: `/start` + `scripts/welcome.py` | Rich-rendered terminal dashboard at session open; `scripts/welcome.py` reads `azoth.yaml`, `backlog.yaml`, `scope-gate.json`, recent episodes and renders via Python `rich` library — `box.HEAVY` identity header, `box.MINIMAL` phase progress strip, `Columns([health, backlog])` 2-column body with `box.ROUNDED` panels, last-session strip, START options panel; Rich handles all Unicode/emoji width via wcwidth internally — zero manual padding; context-sensitive option menu (resume if gate active, else /next); the canonical start contract now lives in `commands/start/command.yaml` + `commands/start/body.md`, with deployed mirrors for Claude/Cursor and calm-flow `$azoth-start` routing for Codex; UX entry point for D41 bootstrap loop; Phase 4 deliverable; Phase 5 (Claude Code): `hooks.SessionStart` → `.claude/hooks/session_start_welcome.py` runs `welcome.py --plain`, tees stdout to `.azoth/session-orientation.txt` (gitignored), injects same text into model context; matchers `startup|resume`; optional per-hook `timeout` (seconds, hooks doc); `CLAUDE.md` rule 9 — default trust injection, `Read` file for verbatim chat only; Cursor has no SessionStart — parity rules + manual script |
 
 ---
 
@@ -1093,6 +1166,66 @@ hook (P3-008) reads this file before allowing Write/Edit.
 **Validator rule:** A scope card mixing M1-targeted items with runtime tasks
 is rejected. M1 changes require a dedicated session.
 
+### Long-running sessions (P1-005)
+
+Multi-hour or multi-wave work (including DYNAMIC-FULL-AUTO+ discovery and `/eval-swarm`) must stay
+compatible with **short-lived scope and pipeline gates** (D50) and the Trust Contract entropy ceiling.
+Operator-visible friction (discovery narrative vs gates, Claude Code vs Cursor, digest handoffs) is
+documented under **`skills/dynamic-full-auto/SKILL.md`** (roadmap **P1-012**).
+
+**Checklist**
+
+1. **Refresh scope before TTL expiry** — Run `/next` (or human-approved scope card) to write a new
+   `.azoth/scope-gate.json` when the current `expires_at` is near; do not assume silent extension.
+   **Lightweight alternative:** the orchestrator may extend `expires_at` in-place (by 1 hour) when
+   a pipeline is mid-execution, provided it surfaces a TTL card to the human offering extend /
+   checkpoint / abort. This avoids full re-scoping mid-pipeline while preserving human-in-the-loop.
+   Explicit `/resume` restores the previously approved scope directly; it should not force a second
+   scope-approval wall.
+2. **Chunk delivery** — Keep each governed write batch within approved scope; split backlog slices
+   rather than exceeding the per-session file ceiling.
+3. **Run ledger (P1-001)** — Append wave outcomes to `.azoth/run-ledger.local.yaml` (gitignored)
+   after each wave or stage; use `python3 scripts/run_ledger.py status` to resume without replaying prose. Schema: `pipelines/run-ledger.schema.yaml`.
+4. **Digest merges** — After swarm append to `SWARM_RESEARCH_DIGEST.yaml`, run
+   `python3 scripts/swarm_research_digest.py validate` on that path before commit.
+5. **Never disable hooks** — Long runs do not bypass PreToolUse scope-gate or pipeline-gate; adjust
+   scope instead.
+
+**Risks:** Expired gates mid-run cause mechanical Write/Edit denies; stale scope cards mis-label M1
+vs infrastructure work; unbounded parallel Task fan-out violates swarm Iron Laws (see
+`.agents/skills/swarm-coordination/SKILL.md`).
+
+### Context & token budget (P1-011)
+
+**Goal:** Lower median tokens and latency per session **without** weakening D50 gates, **BL-012**
+typed handoffs, or **`/eval-swarm`** quality bars.
+
+**Principles (toolkit-level):**
+
+1. **Compaction at stage boundaries** — Prefer machine-readable **`pipelines/stage-summary.schema.yaml`**
+   payloads (`prior_stage_summaries`) over pasting full subagent prose into the orchestrator thread
+   (extends completed **BL-012**).
+
+2. **Static prefix, volatile suffix** — For provider **prompt caching**, keep **stable** system
+   instructions, tool definitions, and rubrics **early**; put **session-specific** state (scope
+   cards, file lists that churn every turn) **late**. Small tool or parameter toggles can
+   **invalidate** large cached prefixes — document this when changing hooks or command bodies.
+
+3. **Spawn hygiene** — Follow **`skills/subagent-router/SKILL.md`** **BL-011**: minimal YAML spawn +
+   **`Read`** targets instead of embedding the whole pipeline table in every **Task**.
+
+4. **Parallel eval economics** — **`/eval-swarm`** multiplies tokens vs a single evaluator; use it
+   when **E1–E6** triggers fire (**`.claude/commands/eval.md`**). For **offline** scoring, vendor
+   **batch** APIs trade latency for cost — not a substitute for interactive gates.
+
+5. **Deploy stability** — **`scripts/azoth-deploy.py`** (**D46**) should keep mirrored command/agent
+   text **deterministic** so repeated installs share long identical prefixes where the API layer
+   repeats scaffold text.
+
+**Research aggregate:** `.azoth/roadmap-specs/v0.2.0/SWARM_RESEARCH_DIGEST.yaml` pack **RP-E**
+(sources: OpenAI / Anthropic / Gemini caching docs; ACON arXiv:2510.00615; Context Folding OpenReview;
+JetBrains context-efficiency blog; PASTE arXiv:2603.18897; OpenAI Batch API).
+
 ### D51: Formalized M2→M1 Promotion Path
 
 D11 noted "M2→M1 pending" as a partial status. D51 formalizes it.
@@ -1103,7 +1236,7 @@ D11 noted "M2→M1 pending" as a partial status. D51 formalizes it.
 - M1 changes happen *between* sessions, never during an active session
 - The scope card validator (D50) enforces this: M1 items cannot be mixed with runtime tasks
 - `/deliver-full` is the required pipeline for all M1-targeted backlog items
-- This applies to kernel/, skills/ (.claude/commands/), and agents/ equally
+- This applies to kernel/, skills/, commands/ (plus their deployed mirrors), and agents/ equally
 
 **Promotion chain:**
 
@@ -1114,7 +1247,7 @@ any insight                 reinforced >=2x                         governance-g
 m2_candidate=true flag      set at intake                           target_layer: M1
 ```
 
-### Architecture Decisions (D47–D53)
+### Architecture Decisions (D47–D54)
 
 | # | Decision | Rationale |
 |---|----------|-----------|
@@ -1123,8 +1256,9 @@ m2_candidate=true flag      set at intake                           target_layer
 | D49 | Intake 3-axis triage | M3/M2/backlog routing is simultaneous and independent, not sequential |
 | D50 | Session scope card | Mechanical scope limiter — approved goals write scope-gate.json before session |
 | D51 | Formalized M2→M1 promotion path | M1 changes are governed events between sessions; target_layer field routes delivery |
-| D52 | Session Welcome UX: `/start` + `scripts/welcome.py` | Single entry point for session orientation — routes to /next, /intake, /promote, or custom goal; **Claude Code** may also inject plain orientation via **SessionStart** (P5-007) and mirror to `.azoth/session-orientation.txt` (`CLAUDE.md` rule 9) |
-| D53 | Auto-versioning policy | Version increments are delivery-triggered — 0.0.PHASE.PATCH scheme; PATCH per delivery, PHASE per phase completion |
+| D52 | Session Welcome UX: `/start` + `scripts/welcome.py` | Single entry point for session orientation — routes to /next, /intake, /promote, or custom goal; in **Codex**, `$azoth-start` is the calm-flow daily entry surface and raw slash tokens are compatibility fallback. **Claude Code** may also inject plain orientation via **SessionStart** (P5-007) and mirror to `.azoth/session-orientation.txt` (`CLAUDE.md` rule 9) |
+| D53 | Auto-versioning policy | Version increments are delivery-triggered — 0.0.PHASE.PATCH pre-release, then 0.1.MILESTONE_PHASE.PATCH while shipping toward v0.2.0 |
+| D54 | Branch model + worktree policy | Two permanent branches (`main`, `phase/vN-pN`); short-lived feature/patch branches deleted on merge; zero-worktree default to avoid scope-gate + run-ledger conflicts |
 
 ---
 
@@ -1146,7 +1280,9 @@ Phase milestone complete (all phase items)   → minor bump:  0.x.y → 0.x+1.0
                                               + git tag proposed (user-confirmed)
 ```
 
-### Version Format: `0.0.PHASE.PATCH`
+### Version Format
+
+#### Pre-release roadmap phases: `0.0.PHASE.PATCH`
 
 ```
 0.0.PHASE.PATCH
@@ -1167,28 +1303,72 @@ Phase milestone complete (all phase items)   → minor bump:  0.x.y → 0.x+1.0
 | v0.0.5 | Phase 5: Trust Layer | 5 |
 | v0.0.6 | Phase 6: Meta-recursive | 6 |
 | v0.0.7 | Phase 7: Publishing & public product | 7 |
-| **v0.1.0** | **Public azoth release — full roadmap complete** | — |
+| **v0.1.0** | **Public azoth release — full roadmap complete (Phases 1–7)** | — |
+| v0.2.0 | Milestone target / container | Holds the roadmap specs, initiatives, and eventual release target |
+| v0.2.0-p1 | Milestone phase 1 working slice | Active phase-1 queue under the v0.2.0 milestone |
 
 ### Bump Rules
 
-- **PATCH** (`0.0.N.XX+1`): every delivery session — /deliver-full, /deliver, or any
-  session that produces artifacts. Counter resets to `.1` on each phase bump.
-- **PHASE** (`0.0.N+1`): phase completion; PHASE number equals the current phase (3→4→5→6→7).
-  PATCH counter resets to `.1`.
-- **Release** (`0.1.0`): full roadmap complete (Phase 7 done). Only non-sequential jump.
+- **PATCH** (`0.0.N.XX+1`): every delivery session in the pre-release roadmap. Counter resets
+  to `.1` on each pre-release phase bump.
+- **PATCH (post–v0.1.0)** (`0.1.P.M+1`): after `--release`, `azoth.yaml` stays four-part and
+  `--patch` increments the fourth component; `roadmap.yaml` mirrors that in the active
+  working slice `current_patch` (for example `v0.2.0-p1` phase 1 ↔ `0.1.1.M`).
+- **PHASE** (`0.0.N+1` or `0.1.P+1.0`): phase completion. Pre-release phases continue the
+  `0.0.*` line; post-release milestone work advances the milestone-local phase number and
+  resets PATCH to `.0`.
+- **Release** (`--release` from `v0.0.7` active): closes v0.0.7 + v0.1.0 roadmap blocks,
+  proposes the public git tag **`v0.1.0`**, then moves the repo onto **`0.1.1.0`** with
+  **`current_phase: 1`**, **`milestone: v0.2.0`**, **`lifecycle_phase: 8`**, milestone
+  target block **`v0.2.0`**, and active working slice **`v0.2.0-p1`** at `current_patch: 0`.
   Git tag proposed — user-confirmed, never auto-pushed.
 
 The PATCH counter provides agents with a reliable time-series signal: higher PATCH = later
 in the phase. PHASE provides coarser orientation. Together they encode "where in development
 are we" without requiring agents to read git history.
 
+### Task IDs vs Working Slices
+
+Post-v0.1.0 roadmap work has two separate axes:
+
+- **Task id** (for example `P1-024`) = stable backlog/spec reference key
+- **Working slice** (for example `v0.2.0-p2`) = milestone-local phase / delivery target
+
+The current `v0.2.0` task set includes a legacy `P1-*` namespace because those ids were minted
+when `v0.2.0-p1` opened. That namespace was carried into later working slices so existing spec
+refs, backlog links, tests, memory episodes, and PR discussion references stayed stable.
+
+Implications:
+
+- Do **not** read the `P1` prefix as "phase 1" once a task is scheduled under `v0.2.0-p2+`
+- Use `roadmap.yaml` `active_version`, the containing `versions[]` block, and backlog
+  `target_version` to answer "what phase/slice is this in?"
+- In human-facing summaries, prefer `P1-024 @ v0.2.0-p2` or `T-001 @ v0.2.0-p2` when ambiguity matters
+
+### Namespace Rule Going Forward
+
+- `v0.2.0` keeps existing `P1-*` ids as frozen legacy keys
+- Historical `P1-*` ids are **not** renamed mid-stream just to match the current slice label
+- New roadmap-backed task ids now mint in a neutral namespace:
+  `T-{NNN}` (for example `T-001`, `T-002`)
+- `T-*` ids are opaque task identifiers, not phase labels
+- Milestone-local phase/slice semantics continue to come from `active_version`,
+  the containing roadmap version block, and backlog `target_version`
+- `roadmap.yaml` `task_id_policy` is the machine-readable source for this rule;
+  `python scripts/roadmap_task_id.py` resolves the next available task id from that policy
+
+This gives Azoth a clean future naming model without breaking the large body of existing
+references to `P1-*` work across specs, tests, memory, and delivery history.
+
 ### Implementation (BL-009)
 
 - `scripts/version-bump.py` — reads `azoth.yaml`, applies `--patch` or `--phase` bump,
   writes `azoth.yaml` and updates `roadmap.yaml` `active_version` + `current_patch` fields.
-  `--release` flag triggers the `0.1.0` jump and proposes a git tag.
-- `/session-closeout` integration — final step calls `version-bump.py --patch` after
-  confirming at least one artifact was written this session.
+  `--release` closes the v0.0.7 slice, marks v0.1.0 complete, sets the v0.2.0 milestone
+  container to `target`, activates `v0.2.0-p1`, sets milestone-local `phase: 1` +
+  `milestone` + `lifecycle_phase: 8`, writes `0.1.1.0`, and proposes the public v0.1.0 tag.
+- `/session-closeout` integration — final step always calls `version-bump.py --patch`
+  after W3 so every successful closeout advances the patch version.
 - `/deliver-full` integration — calls `version-bump.py --patch` after builder stage
   completes successfully.
 
@@ -1197,9 +1377,85 @@ are we" without requiring agents to read git history.
 - Version bumps are never silent — `version-bump.py` prints the old → new transition
 - Git tags are proposed at `--release` only; patch/phase bumps update files only
 - `azoth.yaml` `version` is the authoritative time-series field for agents
-- `roadmap.yaml` `active_version` + `current_patch` mirror it for roadmap context
+- `roadmap.yaml` `active_version` + `current_patch` mirror it for roadmap context; after v0.1.0
+  they track the active **working slice** (`v0.2.0-p1`, `v0.2.0-p2`, …), not the milestone container
 - On `--phase` bump: `version-bump.py` writes `final_patch: N` to the completing version
   entry in `roadmap.yaml` before advancing `active_version` — preserves the full time-series
   history for completed phases
-- `target_version` in `backlog.yaml` uses the delivery-phase version (e.g. `v0.0.3`),
-  not a future release target — completed items record where they actually landed
+- `target_version` in `backlog.yaml` uses the delivery-phase version (e.g. `v0.0.3` or
+  post-v0.1.0 `v0.2.0-p1`), not the milestone container or a future release target — completed
+  items record where they actually landed
+
+---
+
+## 21. Branch Model + Worktree Policy (D54)
+
+### Problem
+
+Multi-platform parity work (Gemini, Codex, Copilot) and overlapping sessions generate
+parallel branches that accumulate silently. Azoth's scope gate, run-ledger write claim,
+and `azoth-deploy.py` mirror enforcement are all repo-root-relative — multiple worktrees
+create mechanical conflicts. Without codified rules, branch hygiene becomes reactive
+cleanup work rather than a maintained invariant.
+
+### Decision
+
+#### Branch Structure
+
+Two permanent branches exist at all times:
+
+```
+main                    ← stable releases only; tagged on squash-merge from phase branch
+phase/v0.2.0-pN         ← active integration branch; all session work lands here
+  └── patch/<bl-id>     ← one per backlog item (e.g. patch/bl-046); deleted on merge
+  └── feat/<slug>       ← ad-hoc feature work (e.g. feat/gemini-cli-adapter); deleted on merge
+```
+
+- `main` never receives direct commits — only squash-merges from a completed phase branch.
+- One phase branch is active at a time. When a phase closes: merge → `main`, tag, delete
+  the phase branch, open `phase/v0.2.0-p(N+1)`.
+- Feature/patch branches are opened on scope approval and deleted within the same session
+  or the next. They must never outlive a phase.
+
+#### Worktree Default: Zero
+
+The scope gate (`.azoth/scope-gate.json`), run-ledger write claim
+(`.azoth/run-ledger.local.yaml`), and deploy hook mirror enforcement share the repo root.
+Running two worktrees simultaneously will produce claim conflicts and stale-mirror false
+positives.
+
+| Scenario | Policy |
+|----------|--------|
+| Normal BL work | Single checkout; switch branches with `git checkout` |
+| Parallel exploration | `git stash` + branch switch — no worktree |
+| Genuinely parallel builds | Worktree allowed; register a separate run-ledger write claim per worktree path; close before `/session-closeout` |
+
+Worktrees are tracked in `.claude/worktrees/`; the `/worktree-sync` skill handles
+checkpointing. If a worktree is open at closeout, `worktree-sync` must be invoked first.
+
+#### Merge Hygiene
+
+- Merge feature/patch branches into the phase branch with `--no-ff` (preserves history).
+- Run `python3 scripts/azoth-deploy.py` before committing after any merge — the pre-commit
+  hook enforces parity, but running it manually avoids the abort-fix-recommit cycle.
+- After every merge run `git branch --merged <phase-branch>` and delete anything listed
+  except `main` and the phase branch.
+
+#### State File Conflict Resolution Order
+
+State files (`.azoth/`, `azoth.yaml`, `.claude/settings.json`) always conflict on parallel
+branches. Canonical resolution:
+
+1. **Version numbers** — keep the higher value (destination branch wins).
+2. **Backlog / decisions state** — keep HEAD (destination branch is authoritative).
+3. **`episodes.jsonl`** — append-merge all new episodes from both sides, sorted by ID.
+4. **`bootloader-state.md`** — keep HEAD; add a merge note capturing session context from
+   the incoming branch if relevant.
+
+### Implementation
+
+- `CLAUDE.md` §Git Conventions (Branch Model, Worktree Policy, Merge Hygiene) — the
+  machine-readable source agents read at session start.
+- `.claude/worktrees/` registry + `/worktree-sync` skill — worktree lifecycle tracking.
+- `scripts/run_ledger.py claim / release-claim` — write claim enforcement for parallel
+  worktrees (BL-011 compliant).
