@@ -1,0 +1,35 @@
+# azoth — Copilot Instructions
+
+> This file redirects GitHub Copilot to the primary instruction source.
+> All agent instructions live in `CLAUDE.md` at the project root.
+
+## Primary Instructions
+
+Read and follow `CLAUDE.md` in the project root. It contains:
+
+- Project routing table
+- Development rules and coding standards
+- Boot sequence (Activate → Survey → Operate → Harden)
+- Trust boundaries and entropy limits
+
+## Azoth Governance
+
+This project uses the Azoth governance framework:
+
+- **Kernel files** (`kernel/`): Do not modify without human approval
+- **Memory** (`.azoth/memory/`): Append-only for episodes
+- **Tests**: Run before every delivery
+- **Quality gate**: Every output passes evaluation
+
+## Memory Operation Parity
+
+- `context-recall` reads `.azoth/memory/episodes.jsonl` and `.azoth/memory/patterns.yaml`
+- `/remember` and `/session-closeout` W1 append new episodes to `.azoth/memory/episodes.jsonl`
+- `/promote` is the human-approved path that writes `.azoth/memory/patterns.yaml`
+- Repo-local `.azoth/*` state is authoritative; `~/.claude/projects/<project-key>/memory/` is a Claude Code mirror only
+
+## Quick Reference
+
+- Architecture: `docs/` (if present)
+- Memory: `.azoth/memory/`
+- Manifest: `azoth.yaml`

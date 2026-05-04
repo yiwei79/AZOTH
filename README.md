@@ -24,3 +24,24 @@ Licensed under the [PolyForm Noncommercial License 1.0.0](https://polyformprojec
 ## Contributing / upstream
 
 Development happens in the **root-azoth** scaffold; changes here flow from mechanical extraction — do not treat this tree as the authoritative workshop copy.
+
+## Fresh GitHub Copilot project
+
+From an empty target repository, force the Copilot surface explicitly:
+
+```bash
+AZOTH_PLATFORMS=copilot bash /path/to/azoth/install.sh
+```
+
+Windows PowerShell:
+
+```powershell
+$env:AZOTH_PLATFORMS = "copilot"
+pwsh -File C:\path\to\azoth\install.ps1
+```
+
+The Copilot install creates `.github/copilot-instructions.md`, `.github/prompts/`,
+`.github/agents/`, `AGENTS.md`, `CLAUDE.md`, `azoth.yaml`, and `.azoth/kernel/`.
+If no `AZOTH_PLATFORMS` override is set, the installers include GitHub Copilot
+alongside detected tools; if no tools are detected, they default to Claude Code +
+GitHub Copilot.
