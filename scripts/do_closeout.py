@@ -20,7 +20,7 @@ from episode_store import (
 )
 from reinforcement_count import ReinforcementError, increment_reinforcement_count
 from run_ledger import (
-    assert_no_unresolved_governed_run_evidence,
+    assert_governed_run_completion_evidence,
     release_write_claim,
     upsert_run,
     upsert_session,
@@ -200,7 +200,7 @@ def enforce_governed_closeout_stage_evidence(
         raise CloseoutError("Governed closeout blocked: scope-gate.json is missing session_id.")
 
     try:
-        assert_no_unresolved_governed_run_evidence(repo_root, session_id=session_id)
+        assert_governed_run_completion_evidence(repo_root, session_id=session_id)
     except ValueError as exc:
         raise CloseoutError(f"Governed closeout blocked: {exc}") from exc
 
@@ -260,7 +260,9 @@ def enforce_not_already_closed_session(
         session_id=session_id,
     )
     session_registry_closed = session_registry_status == "closed"
-    if not session_registry_closed and not (session_state_closed and _scope_gate_indicates_closed(scope, session_id=session_id)):
+    if not session_registry_closed and not (
+        session_state_closed and _scope_gate_indicates_closed(scope, session_id=session_id)
+    ):
         return
 
     scope_closed = _scope_gate_indicates_closed(scope, session_id=session_id)
@@ -364,7 +366,9 @@ def validate_reinforcement_targets(
             "Closeout blocked: unknown reinforce episode id(s): "
             f"{quoted_ids}. Confirm exact existing episode ids before running closeout."
         )
-    ambiguous_ids = sorted({episode_id for episode_id in reinforce_episode_ids if id_counts.get(episode_id, 0) > 1})
+    ambiguous_ids = sorted(
+        {episode_id for episode_id in reinforce_episode_ids if id_counts.get(episode_id, 0) > 1}
+    )
     if ambiguous_ids:
         quoted_ids = ", ".join(repr(episode_id) for episode_id in ambiguous_ids)
         raise ReinforcementValidationError(
@@ -687,7 +691,11 @@ def _sync_initiative_alias_after_task_completion(
                 f"W2c: initiative {initiative['id']} retargeted to next slice "
                 f"{initiative['task_ref']}"
             )
-    elif initiative.get("phase") is not None or current_alias or initiative.get("spec_ref") is not None:
+    elif (
+        initiative.get("phase") is not None
+        or current_alias
+        or initiative.get("spec_ref") is not None
+    ):
         initiative["phase"] = None
         initiative["task_ref"] = None
         if "spec_ref" in initiative:
@@ -769,6 +777,15 @@ def _version_field_indent(block: str) -> str:
         if match:
             return match.group(1)
     return "  "
+
+
+def _section_sequence_indent(section_block: str, key_indent: str) -> str:
+    """Return the indent used by direct sequence items in a YAML section."""
+    for line in section_block.splitlines():
+        match = re.match(r"^(\s*)-\s+", line)
+        if match:
+            return match.group(1)
+    return key_indent + "  "
 
 
 def _remove_multiline_task_entry(block: str, task_id: str) -> tuple[str, bool]:
@@ -922,10 +939,27 @@ def _mark_roadmap_task_complete(
     if removed_deferred:
         changed = True
 
-    completed_pattern = rf'^\s*-\s+\{{id:\s*["\']?{re.escape(task_id)}["\']?,.*$'
-    completed_entry = re.search(completed_pattern, block, flags=re.MULTILINE)
     decision_text = f"[{', '.join(decision_ref)}]" if decision_ref else "[]"
     title_text = title.replace("\\", "\\\\").replace('"', '\\"')
+    completed_bounds = _find_section_bounds(block, "completed_tasks")
+    completed_entry: re.Match[str] | None = None
+    completed_entry_offset = 0
+    if completed_bounds is not None:
+        completed_start, completed_end = completed_bounds
+        completed_block = block[completed_start:completed_end]
+        header_match = re.search(
+            r"^(\s*)completed_tasks:\s*(?:null|\[\])?\s*$",
+            completed_block,
+            flags=re.MULTILINE,
+        )
+        assert header_match is not None
+        key_indent = header_match.group(1)
+        item_indent = _section_sequence_indent(completed_block, key_indent)
+        completed_pattern = (
+            rf'^{re.escape(item_indent)}-\s+\{{id:\s*["\']?{re.escape(task_id)}["\']?,.*$'
+        )
+        completed_entry = re.search(completed_pattern, completed_block, flags=re.MULTILINE)
+        completed_entry_offset = completed_start
     if completed_entry:
         new_line = re.sub(
             r'completed_date: "[^"]*"',
@@ -934,10 +968,11 @@ def _mark_roadmap_task_complete(
             count=1,
         )
         if new_line != completed_entry.group(0):
-            block = block[: completed_entry.start()] + new_line + block[completed_entry.end() :]
+            start_index = completed_entry_offset + completed_entry.start()
+            end_index = completed_entry_offset + completed_entry.end()
+            block = block[:start_index] + new_line + block[end_index:]
             changed = True
     else:
-        completed_bounds = _find_section_bounds(block, "completed_tasks")
         if completed_bounds is None:
             key_indent = _version_field_indent(block)
             item_indent = key_indent + "  "
@@ -957,7 +992,7 @@ def _mark_roadmap_task_complete(
             )
             assert header_match is not None
             key_indent = header_match.group(1)
-            item_indent = key_indent + "  "
+            item_indent = _section_sequence_indent(completed_block, key_indent)
             completed_line = (
                 f'{item_indent}- {{id: {task_id}, title: "{title_text}", '
                 f'completed_date: "{completed_date}", decision_ref: {decision_text}}}\n'
@@ -1655,9 +1690,8 @@ def run_closeout(
     if live_scope:
         session_context = dict(live_scope)
         session_context.setdefault("session_mode", "delivery")
-        if (
-            session_gate
-            and str(session_gate.get("session_id") or "") == str(live_scope.get("session_id") or "")
+        if session_gate and str(session_gate.get("session_id") or "") == str(
+            live_scope.get("session_id") or ""
         ):
             session_context["session_mode"] = normalized_session_mode(session_gate)
         full_closeout = True

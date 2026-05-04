@@ -1,5 +1,5 @@
 name: root-azoth
-version: 0.1.4.0
+version: 0.1.4.34
 description: The Universal Agentic Toolkit
 scope:
   mode: project
@@ -23,7 +23,7 @@ layers:
     status: active
     pipelines: 8
 memory:
-  episodes: 456
+  episodes: 548
   patterns: 26
   last_sync: null
 platforms:

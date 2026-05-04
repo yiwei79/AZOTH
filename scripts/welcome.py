@@ -744,15 +744,15 @@ def render_dashboard_plain(state: dict[str, Any]) -> None:
     lines.append("  roadmap  → /roadmap — versioned roadmap dashboard (D48)")
     lines.append("  plan     → /plan — structured autonomy / planning")
     lines.append("  remember → /remember — quick M3 capture (no full closeout)")
-    if session_gate and normalized_session_mode(session_gate) == "exploratory" and not is_scope_active(
-        scope, complete_ids
+    if (
+        session_gate
+        and normalized_session_mode(session_gate) == "exploratory"
+        and not is_scope_active(scope, complete_ids)
     ):
         lines.append("  closeout → /session-closeout — light closeout for exploratory session")
     else:
         lines.append("  closeout → /session-closeout — episodes W1–W4 + handoff capsule")
-    lines.append(
-        "  <goal>   → /start route — exploratory goals open a session; delivery goals escalate to /auto"
-    )
+    lines.append("  <goal>   → azoth-lite default; explicit /auto for governed delivery")
     lines.append(
         "  codex    → primary: /skills or $azoth-resume / $azoth-next / $azoth-auto / $azoth-autonomous-auto; app slash list for enabled azoth-* skills; raw slash tokens remain compatibility fallback"
     )
@@ -1032,7 +1032,7 @@ def render_dashboard() -> None:
             and not is_scope_active(scope, complete_ids)
             else "[bold cyan]closeout[/bold cyan] :right_arrow: /session-closeout — W1–W4 + session handoff"
         ),
-        "[bold cyan]<goal>[/bold cyan]   :right_arrow: /start route — exploratory goals open a session; delivery goals escalate to /auto",
+        "[bold cyan]<goal>[/bold cyan]   :right_arrow: azoth-lite default; explicit /auto for governed delivery",
         "[bold magenta]codex[/bold magenta]    :right_arrow: primary: /skills or $azoth-resume / $azoth-next / $azoth-auto / $azoth-autonomous-auto; app slash list for enabled azoth-* skills; raw slash tokens remain compatibility fallback",
     ]
     start_panel = Panel("\n".join(options_lines), title="[bold]START[/bold]", box=box.ROUNDED)

@@ -18,6 +18,11 @@ Usage:
                                         --ide IDE --next-action TEXT
                                         [--active-run-id ID]
                                         [--ledger PATH]
+  python scripts/run_ledger.py record-inline-exception --run-id ID --stage-id STAGE ...
+                                        --exception-reason TEXT
+                                        [--ledger PATH]
+  python scripts/run_ledger.py require-completion-evidence --run-id ID
+                                        [--ledger PATH]
 """
 
 from __future__ import annotations
@@ -407,6 +412,11 @@ def validate_ledger(data: dict) -> list[str]:
                 "summary_recorded_at",
                 ("summary_status", "summary_disposition"),
             ),
+            (
+                "stage_inline_exceptions",
+                "exception_recorded_at",
+                ("exception_reason",),
+            ),
         ):
             entries = entry.get(field_name)
             if entries is None:
@@ -430,6 +440,26 @@ def validate_ledger(data: dict) -> list[str]:
                     *extra_required,
                 )
                 allowed_fields = set(required_fields)
+                if field_name == "stage_spawns":
+                    allowed_fields.update(
+                        {
+                            "model",
+                            "reasoning_effort",
+                            "model_tier",
+                            "policy_ref",
+                            "selector_trace_ref",
+                        }
+                    )
+                if field_name == "stage_summaries":
+                    allowed_fields.update(
+                        {
+                            "evaluator_disposition",
+                            "score",
+                            "ux_anchor_scorecard",
+                            "verification_commands",
+                            "residual_risks",
+                        }
+                    )
                 for evidence_field in evidence:
                     if evidence_field not in allowed_fields:
                         errors.append(f"{ep}: unexpected field '{evidence_field}'")
@@ -462,6 +492,30 @@ def validate_ledger(data: dict) -> list[str]:
                             f"{ep}: stage_id must match stage id pattern, got {evidence_stage_id!r}"
                         )
 
+                if field_name == "stage_spawns":
+                    for optional_field in (
+                        "model",
+                        "reasoning_effort",
+                        "model_tier",
+                        "policy_ref",
+                        "selector_trace_ref",
+                    ):
+                        optional_value = evidence.get(optional_field)
+                        if optional_value is not None and (
+                            not isinstance(optional_value, str) or not optional_value.strip()
+                        ):
+                            errors.append(f"{ep}: '{optional_field}' must be a non-empty string")
+                    reasoning_effort = evidence.get("reasoning_effort")
+                    if reasoning_effort is not None and reasoning_effort not in {
+                        "low",
+                        "medium",
+                        "high",
+                        "xhigh",
+                    }:
+                        errors.append(
+                            f"{ep}: reasoning_effort must be one of low, medium, high, xhigh"
+                        )
+
                 timestamp_value = evidence.get(timestamp_field)
                 if timestamp_value is not None and (
                     not isinstance(timestamp_value, str) or not _ISO8601_RE.match(timestamp_value)
@@ -477,6 +531,32 @@ def validate_ledger(data: dict) -> list[str]:
                         f"{ep}: summary_status {summary_status!r} not in "
                         f"{sorted(_SUMMARY_STATUS_ENUM)}"
                     )
+
+                if field_name == "stage_summaries":
+                    evaluator_disposition = evidence.get("evaluator_disposition")
+                    if evaluator_disposition is not None and (
+                        not isinstance(evaluator_disposition, str)
+                        or not evaluator_disposition.strip()
+                    ):
+                        errors.append(f"{ep}: 'evaluator_disposition' must be a non-empty string")
+                    score = evidence.get("score")
+                    if score is not None and not isinstance(score, (int, float)):
+                        errors.append(f"{ep}: 'score' must be a number")
+                    ux_anchor_scorecard = evidence.get("ux_anchor_scorecard")
+                    if ux_anchor_scorecard is not None and not isinstance(
+                        ux_anchor_scorecard, dict
+                    ):
+                        errors.append(f"{ep}: 'ux_anchor_scorecard' must be a mapping")
+                    for list_field in ("verification_commands", "residual_risks"):
+                        list_value = evidence.get(list_field)
+                        if list_value is None:
+                            continue
+                        if not isinstance(list_value, list):
+                            errors.append(f"{ep}: '{list_field}' must be a list")
+                            continue
+                        for k, item in enumerate(list_value):
+                            if not isinstance(item, str) or not item.strip():
+                                errors.append(f"{ep}.{list_field}[{k}] must be a non-empty string")
 
         # waves
         waves = entry.get("waves")
@@ -1016,7 +1096,9 @@ def upsert_run(
     return created, entry
 
 
-def _require_run_entry(root: Path, run_id: str, *, ledger_path: Path | None) -> tuple[Path, dict, dict]:
+def _require_run_entry(
+    root: Path, run_id: str, *, ledger_path: Path | None
+) -> tuple[Path, dict, dict]:
     resolved_ledger_path = ledger_path or _ledger_path_from_root(root)
     data = (
         _load_ledger(resolved_ledger_path)
@@ -1046,6 +1128,16 @@ def _stage_evidence_entry(
     timestamp: str,
     summary_status: str | None = None,
     summary_disposition: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+    model_tier: str | None = None,
+    policy_ref: str | None = None,
+    selector_trace_ref: str | None = None,
+    evaluator_disposition: str | None = None,
+    score: float | None = None,
+    ux_anchor_scorecard: dict | None = None,
+    verification_commands: list[str] | None = None,
+    residual_risks: list[str] | None = None,
 ) -> dict:
     entry = {
         "run_id": run_id,
@@ -1060,6 +1152,20 @@ def _stage_evidence_entry(
         entry["summary_status"] = summary_status
     if summary_disposition is not None:
         entry["summary_disposition"] = summary_disposition
+    for key, value in (
+        ("model", model),
+        ("reasoning_effort", reasoning_effort),
+        ("model_tier", model_tier),
+        ("policy_ref", policy_ref),
+        ("selector_trace_ref", selector_trace_ref),
+        ("evaluator_disposition", evaluator_disposition),
+        ("score", score),
+        ("ux_anchor_scorecard", ux_anchor_scorecard),
+        ("verification_commands", verification_commands),
+        ("residual_risks", residual_risks),
+    ):
+        if value not in (None, [], {}):
+            entry[key] = value
     return entry
 
 
@@ -1072,6 +1178,11 @@ def record_stage_spawn(
     trigger: str,
     role_hint: str,
     dependency_summary_refs: list[str] | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
+    model_tier: str | None = None,
+    policy_ref: str | None = None,
+    selector_trace_ref: str | None = None,
     spawned_at: str | None = None,
     ledger_path: Path | None = None,
 ) -> dict:
@@ -1092,6 +1203,11 @@ def record_stage_spawn(
             dependency_summary_refs=dependency_summary_refs,
             timestamp_field="spawned_at",
             timestamp=spawned_at or utc_now_iso(),
+            model=model,
+            reasoning_effort=reasoning_effort,
+            model_tier=model_tier,
+            policy_ref=policy_ref,
+            selector_trace_ref=selector_trace_ref,
         )
         run.setdefault("stage_spawns", []).append(evidence)
         run["updated_at"] = utc_now_iso()
@@ -1113,6 +1229,11 @@ def record_stage_summary(
     dependency_summary_refs: list[str] | None = None,
     summary_status: str,
     summary_disposition: str,
+    evaluator_disposition: str | None = None,
+    score: float | None = None,
+    ux_anchor_scorecard: dict | None = None,
+    verification_commands: list[str] | None = None,
+    residual_risks: list[str] | None = None,
     summary_recorded_at: str | None = None,
     ledger_path: Path | None = None,
 ) -> dict:
@@ -1135,8 +1256,54 @@ def record_stage_summary(
             timestamp=summary_recorded_at or utc_now_iso(),
             summary_status=summary_status,
             summary_disposition=summary_disposition,
+            evaluator_disposition=evaluator_disposition,
+            score=score,
+            ux_anchor_scorecard=ux_anchor_scorecard,
+            verification_commands=verification_commands,
+            residual_risks=residual_risks,
         )
         run.setdefault("stage_summaries", []).append(evidence)
+        run["updated_at"] = utc_now_iso()
+        errors = validate_ledger(data)
+        if errors:
+            raise ValueError("; ".join(errors))
+        _write_ledger(resolved_ledger_path, data)
+        return evidence
+
+
+def record_stage_inline_exception(
+    root: Path,
+    *,
+    run_id: str,
+    stage_id: str,
+    subagent_type: str,
+    trigger: str,
+    role_hint: str,
+    exception_reason: str,
+    dependency_summary_refs: list[str] | None = None,
+    exception_recorded_at: str | None = None,
+    ledger_path: Path | None = None,
+) -> dict:
+    """Append durable evidence that a stage was intentionally completed inline."""
+    resolved_ledger_path = ledger_path or _ledger_path_from_root(root)
+    with _locked_ledger_update(resolved_ledger_path):
+        resolved_ledger_path, data, run = _require_run_entry(
+            root,
+            run_id,
+            ledger_path=resolved_ledger_path,
+        )
+        evidence = _stage_evidence_entry(
+            run_id=run_id,
+            stage_id=stage_id,
+            subagent_type=subagent_type,
+            trigger=trigger,
+            role_hint=role_hint,
+            dependency_summary_refs=dependency_summary_refs,
+            timestamp_field="exception_recorded_at",
+            timestamp=exception_recorded_at or utc_now_iso(),
+        )
+        evidence["exception_reason"] = exception_reason
+        run.setdefault("stage_inline_exceptions", []).append(evidence)
         run["updated_at"] = utc_now_iso()
         errors = validate_ledger(data)
         if errors:
@@ -1280,6 +1447,142 @@ def require_stage_evidence(
             f"status={summary_status!r}, disposition={summary_disposition!r}"
         )
     return {"spawn": spawn, "summary": summary}
+
+
+def _completed_stage_ids(run: dict) -> list[str]:
+    stages = run.get("stages_completed")
+    if stages is None:
+        return []
+    if not isinstance(stages, list):
+        raise ValueError("stages_completed must be a list")
+    completed: list[str] = []
+    for index, stage_id in enumerate(stages):
+        if not isinstance(stage_id, str) or not stage_id.strip():
+            raise ValueError(f"stages_completed[{index}] must be a non-empty string")
+        completed.append(stage_id)
+    return completed
+
+
+def _assert_inline_exception_pre_completion(run: dict, exception: dict, *, stage_id: str) -> None:
+    exception_dt = _parse_ledger_timestamp(exception.get("exception_recorded_at"))
+    if exception_dt is None:
+        raise ValueError(
+            f"malformed inline exception timestamp for run {run.get('run_id')!r} stage {stage_id!r}"
+        )
+
+    created_dt = _parse_ledger_timestamp(run.get("created_at"))
+    if created_dt is not None and exception_dt < created_dt:
+        raise ValueError(
+            f"inline exception predates run creation for run {run.get('run_id')!r} "
+            f"stage {stage_id!r}"
+        )
+
+    updated_dt = _parse_ledger_timestamp(run.get("updated_at"))
+    if updated_dt is not None and exception_dt > updated_dt:
+        raise ValueError(
+            f"inline exception is newer than run updated_at for run {run.get('run_id')!r} "
+            f"stage {stage_id!r}; record inline exceptions before declaring completion"
+        )
+
+
+def require_completion_evidence(
+    root: Path,
+    *,
+    run_id: str,
+    ledger_path: Path | None = None,
+) -> dict[str, dict]:
+    """Validate every declared completed stage has paired or inline evidence."""
+    resolved_ledger_path, data, run = _require_run_entry(root, run_id, ledger_path=ledger_path)
+    _require_valid_ledger_for_evidence(data, ledger_path=resolved_ledger_path)
+    completion: dict[str, dict] = {}
+    for stage_id in _completed_stage_ids(run):
+        try:
+            completion[stage_id] = {
+                "paired_stage_evidence": require_stage_evidence(
+                    root,
+                    run_id=run_id,
+                    stage_id=stage_id,
+                    ledger_path=resolved_ledger_path,
+                )
+            }
+            continue
+        except ValueError as paired_error:
+            inline_exception = _latest_stage_evidence(
+                run,
+                "stage_inline_exceptions",
+                stage_id=stage_id,
+            )
+            if inline_exception is None:
+                raise ValueError(
+                    f"missing completion evidence for run {run_id!r} stage {stage_id!r}: "
+                    f"{paired_error}"
+                ) from paired_error
+            has_paired_evidence = (
+                _latest_stage_evidence(run, "stage_spawns", stage_id=stage_id) is not None
+                or _latest_stage_evidence(run, "stage_summaries", stage_id=stage_id) is not None
+            )
+            if has_paired_evidence:
+                raise ValueError(
+                    f"inline exception cannot override invalid paired stage evidence for "
+                    f"run {run_id!r} stage {stage_id!r}: {paired_error}"
+                ) from paired_error
+            _assert_inline_exception_pre_completion(run, inline_exception, stage_id=stage_id)
+            completion[stage_id] = {"inline_exception": inline_exception}
+    return completion
+
+
+def assert_governed_run_completion_evidence(
+    root: Path,
+    *,
+    session_id: str,
+    governed_modes: set[str] | None = None,
+    ledger_path: Path | None = None,
+) -> None:
+    """Fail closed unless live governed runs have completion evidence for declared stages."""
+    assert_no_unresolved_governed_run_evidence(
+        root,
+        session_id=session_id,
+        governed_modes=governed_modes,
+        ledger_path=ledger_path,
+    )
+    resolved_ledger_path = ledger_path or _ledger_path_from_root(root)
+    data = _load_optional_ledger_for_evidence(root, resolved_ledger_path)
+    if data is None:
+        return
+    _require_valid_ledger_for_evidence(data, ledger_path=resolved_ledger_path)
+    modes = governed_modes or _GOVERNED_RUN_MODES
+    runs = data.get("runs")
+    if not isinstance(runs, list):
+        raise ValueError("malformed governed run ledger: runs must be a list")
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        if str(run.get("session_id") or "") != session_id:
+            continue
+        if str(run.get("status") or "") not in {"active", "paused"}:
+            continue
+        if str(run.get("mode") or "") not in modes:
+            continue
+        run_id = str(run.get("run_id") or "")
+        active_stage_id = str(run.get("active_stage_id") or "").strip()
+        pending_stage_ids = run.get("pending_stage_ids") or []
+        if active_stage_id or pending_stage_ids:
+            raise ValueError(
+                "open governed run stages for "
+                f"session {session_id!r}, run {run_id!r}: "
+                f"active_stage_id={active_stage_id!r}, pending_stage_ids={pending_stage_ids!r}"
+            )
+        try:
+            require_completion_evidence(
+                root,
+                run_id=run_id,
+                ledger_path=resolved_ledger_path,
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "incomplete governed run completion evidence for "
+                f"session {session_id!r}, run {run_id!r}: {exc}"
+            ) from exc
 
 
 def assert_no_unresolved_governed_run_evidence(
@@ -1765,6 +2068,11 @@ def cmd_record_spawn(args: argparse.Namespace) -> None:
         trigger=args.trigger,
         role_hint=args.role_hint,
         dependency_summary_refs=args.dependency_summary_refs,
+        model=args.model,
+        reasoning_effort=args.reasoning_effort,
+        model_tier=args.model_tier,
+        policy_ref=args.policy_ref,
+        selector_trace_ref=args.selector_trace_ref,
         ledger_path=args.ledger,
     )
     print(f"stage spawn recorded: {evidence['run_id']} {evidence['stage_id']}")
@@ -1772,6 +2080,14 @@ def cmd_record_spawn(args: argparse.Namespace) -> None:
 
 def cmd_record_summary(args: argparse.Namespace) -> None:
     root = _root_from_ledger_path(args.ledger)
+    ux_anchor_scorecard = None
+    if args.ux_anchor_scorecard_json:
+        try:
+            ux_anchor_scorecard = json.loads(args.ux_anchor_scorecard_json)
+        except json.JSONDecodeError as exc:
+            _die(f"--ux-anchor-scorecard-json is not valid JSON: {exc}")
+        if not isinstance(ux_anchor_scorecard, dict):
+            _die("--ux-anchor-scorecard-json must decode to an object")
     evidence = record_stage_summary(
         root,
         run_id=args.run_id,
@@ -1782,9 +2098,30 @@ def cmd_record_summary(args: argparse.Namespace) -> None:
         dependency_summary_refs=args.dependency_summary_refs,
         summary_status=args.summary_status,
         summary_disposition=args.summary_disposition,
+        evaluator_disposition=args.evaluator_disposition,
+        score=args.quality_score,
+        ux_anchor_scorecard=ux_anchor_scorecard,
+        verification_commands=args.verification_commands,
+        residual_risks=args.residual_risks,
         ledger_path=args.ledger,
     )
     print(f"stage summary recorded: {evidence['run_id']} {evidence['stage_id']}")
+
+
+def cmd_record_inline_exception(args: argparse.Namespace) -> None:
+    root = _root_from_ledger_path(args.ledger)
+    evidence = record_stage_inline_exception(
+        root,
+        run_id=args.run_id,
+        stage_id=args.stage_id,
+        subagent_type=args.subagent_type,
+        trigger=args.trigger,
+        role_hint=args.role_hint,
+        dependency_summary_refs=args.dependency_summary_refs,
+        exception_reason=args.exception_reason,
+        ledger_path=args.ledger,
+    )
+    print(f"stage inline exception recorded: {evidence['run_id']} {evidence['stage_id']}")
 
 
 def cmd_require_stage_evidence(args: argparse.Namespace) -> None:
@@ -1804,6 +2141,20 @@ def cmd_require_stage_evidence(args: argparse.Namespace) -> None:
         print(f"stage evidence blocked: {exc}", file=sys.stderr)
         sys.exit(1)
     print(f"stage evidence OK: {args.run_id} {args.stage_id}")
+
+
+def cmd_require_completion_evidence(args: argparse.Namespace) -> None:
+    root = _root_from_ledger_path(args.ledger)
+    try:
+        require_completion_evidence(
+            root,
+            run_id=args.run_id,
+            ledger_path=args.ledger,
+        )
+    except ValueError as exc:
+        print(f"completion evidence blocked: {exc}", file=sys.stderr)
+        sys.exit(1)
+    print(f"completion evidence OK: {args.run_id}")
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -1920,6 +2271,22 @@ def main() -> None:
     )
     rsp.add_argument("--trigger", required=True, metavar="TRIGGER", help="Isolation trigger.")
     rsp.add_argument("--role-hint", required=True, metavar="TEXT", help="Canonical role hint.")
+    rsp.add_argument("--model", metavar="MODEL", default=None, help="Resolved Codex model.")
+    rsp.add_argument(
+        "--reasoning-effort",
+        metavar="EFFORT",
+        choices=["low", "medium", "high", "xhigh"],
+        default=None,
+        help="Resolved Codex reasoning effort.",
+    )
+    rsp.add_argument("--model-tier", metavar="TIER", default=None, help="Portable model tier.")
+    rsp.add_argument("--policy-ref", metavar="REF", default=None, help="Selector policy ref.")
+    rsp.add_argument(
+        "--selector-trace-ref",
+        metavar="PATH",
+        default=None,
+        help="Selector trace artifact path or ref.",
+    )
     rsp.add_argument(
         "--dependency-summary-ref",
         action="append",
@@ -1932,9 +2299,7 @@ def main() -> None:
     rsu = subs.add_parser("record-summary", help="Append typed stage-summary evidence.")
     rsu.add_argument("--run-id", required=True, metavar="ID", help="Run identifier.")
     rsu.add_argument("--stage-id", required=True, metavar="STAGE_ID", help="Completed stage id.")
-    rsu.add_argument(
-        "--subagent-type", required=True, metavar="TYPE", help="Stage subagent type."
-    )
+    rsu.add_argument("--subagent-type", required=True, metavar="TYPE", help="Stage subagent type.")
     rsu.add_argument("--trigger", required=True, metavar="TRIGGER", help="Isolation trigger.")
     rsu.add_argument("--role-hint", required=True, metavar="TEXT", help="Canonical role hint.")
     rsu.add_argument(
@@ -1957,6 +2322,62 @@ def main() -> None:
         metavar="DISPOSITION",
         help="Stage summary disposition, e.g. approved or request-changes.",
     )
+    rsu.add_argument(
+        "--evaluator-disposition",
+        metavar="TEXT",
+        help="Optional evaluator outcome label, e.g. pass, conditional, fail, or advisory.",
+    )
+    rsu.add_argument(
+        "--quality-score",
+        type=float,
+        metavar="FLOAT",
+        help="Optional numeric quality/evaluator score for audit evidence.",
+    )
+    rsu.add_argument(
+        "--ux-anchor-scorecard-json",
+        metavar="JSON",
+        help="Optional JSON object with UX Anchor Scorecard fields.",
+    )
+    rsu.add_argument(
+        "--verification-command",
+        action="append",
+        dest="verification_commands",
+        default=[],
+        metavar="CMD",
+        help="Optional verification command recorded by the stage (repeatable).",
+    )
+    rsu.add_argument(
+        "--residual-risk",
+        action="append",
+        dest="residual_risks",
+        default=[],
+        metavar="TEXT",
+        help="Optional residual risk recorded by the stage (repeatable).",
+    )
+
+    rie = subs.add_parser(
+        "record-inline-exception",
+        help="Append evidence that a stage intentionally ran inline instead of delegated.",
+    )
+    rie.add_argument("--run-id", required=True, metavar="ID", help="Run identifier.")
+    rie.add_argument("--stage-id", required=True, metavar="STAGE_ID", help="Inline stage id.")
+    rie.add_argument("--subagent-type", required=True, metavar="TYPE", help="Stage role type.")
+    rie.add_argument("--trigger", required=True, metavar="TRIGGER", help="Isolation trigger.")
+    rie.add_argument("--role-hint", required=True, metavar="TEXT", help="Canonical role hint.")
+    rie.add_argument(
+        "--dependency-summary-ref",
+        action="append",
+        dest="dependency_summary_refs",
+        default=[],
+        metavar="STAGE_ID",
+        help="Required upstream stage-summary ref (repeatable).",
+    )
+    rie.add_argument(
+        "--exception-reason",
+        required=True,
+        metavar="TEXT",
+        help="Why inline execution was justified before the work started.",
+    )
 
     rse = subs.add_parser(
         "require-stage-evidence",
@@ -1976,6 +2397,12 @@ def main() -> None:
         help="Expected upstream stage-summary ref (repeatable).",
     )
 
+    rce = subs.add_parser(
+        "require-completion-evidence",
+        help="Fail closed unless declared completed stages have paired or inline evidence.",
+    )
+    rce.add_argument("--run-id", required=True, metavar="ID", help="Run identifier.")
+
     args = parser.parse_args()
     {
         "validate": cmd_validate,
@@ -1987,7 +2414,9 @@ def main() -> None:
         "park-session": cmd_park_session,
         "record-spawn": cmd_record_spawn,
         "record-summary": cmd_record_summary,
+        "record-inline-exception": cmd_record_inline_exception,
         "require-stage-evidence": cmd_require_stage_evidence,
+        "require-completion-evidence": cmd_require_completion_evidence,
     }[args.command](args)
 
 
