@@ -58,9 +58,7 @@ RUNTIME_GITIGNORE_RULES: tuple[str, ...] = (
 LOCAL_ARTIFACT_NAMES = {".DS_Store", "__pycache__"}
 LOCAL_ARTIFACT_SUFFIXES = {".pyc", ".pyo"}
 TEXT_SUFFIXES = {".md", ".yaml", ".yml", ".json", ".py", ".txt", ".toml"}
-CLAUDE_COMMAND_REF_RE = re.compile(
-    r"(?<![\w./-])\.claude/commands/[A-Za-z0-9_-]+\.md"
-)
+CLAUDE_COMMAND_REF_RE = re.compile(r"(?<![\w./-])\.claude/commands/[A-Za-z0-9_-]+\.md")
 
 
 class ReleaseProfileError(RuntimeError):
@@ -195,12 +193,35 @@ def _command_frontmatter(contract: Mapping[str, Any]) -> str:
         "azoth_effect": contract.get("azoth_effect"),
         "agent": contract.get("agent"),
     }
-    lines = ["---"]
-    for key, value in fields.items():
-        if value:
-            lines.append(f"{key}: {value}")
-    lines.extend(["---", ""])
-    return "\n".join(lines)
+    frontmatter = {key: value for key, value in fields.items() if value}
+    return (
+        "---\n"
+        + yaml.safe_dump(
+            frontmatter,
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        + "---\n"
+    )
+
+
+def _has_valid_frontmatter(path: Path) -> bool:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return True
+    try:
+        end_index = next(
+            index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---"
+        )
+    except StopIteration:
+        return True
+    try:
+        yaml.safe_load("\n".join(lines[1:end_index]))
+    except yaml.YAMLError:
+        return False
+    return True
 
 
 def _load_command_contract(command_yaml: Path) -> dict[str, Any]:
@@ -258,7 +279,7 @@ def _synthesize_claude_body_from_skill_wrapper(source_root: Path, command_name: 
 def _materialize_claude_command_bodies(source_root: Path, target_root: Path) -> None:
     for rel_path in _referenced_claude_command_bodies(target_root):
         target = target_root / rel_path
-        if target.is_file():
+        if target.is_file() and _has_valid_frontmatter(target):
             continue
         source = source_root / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
